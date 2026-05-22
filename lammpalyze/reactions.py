@@ -18,6 +18,20 @@ class ReactionPath:
     count: int
 
 
+@dataclass(frozen=True)
+class ReactionOccurrence:
+    """One concrete occurrence of a reaction path."""
+
+    reaction: str
+    timestep_reactants: int
+    timestep_products: int
+    reactants: list[str]
+    products: list[str]
+    reactant_atom_ids: list[str]
+    product_atom_ids: list[str]
+    simulation_index: int | None = None
+
+
 class UnionFindReax:
     """Union-find helper for grouping reactants and products across timesteps."""
 
@@ -109,6 +123,53 @@ def count_reaction_paths(
     ]
 
 
+def find_reaction_occurrences(
+    smiles: dict[int, list[str]],
+    smiles_id: dict[int, list[list[str]]],
+    reaction_filter: str | None = None,
+    *,
+    first_only: bool = False,
+    simulation_index: int | None = None,
+) -> list[ReactionOccurrence]:
+    """Return concrete reaction occurrences with timestep and atom-id metadata."""
+
+    occurrences: list[ReactionOccurrence] = []
+    for t1, t2, reaction in _iter_reactions(smiles, smiles_id):
+        reactants = sorted(smiles[t1][index] for index in reaction["reactants"])
+        products = sorted(smiles[t2][index] for index in reaction["products"])
+        if set(reactants) == set(products):
+            continue
+
+        reaction_path = _format_reaction(reactants, products)
+        if reaction_filter is not None and reaction_path != reaction_filter:
+            continue
+
+        reactant_atom_ids = sorted(
+            {atom_id for index in reaction["reactants"] for atom_id in smiles_id[t1][index]},
+            key=_atom_sort_key,
+        )
+        product_atom_ids = sorted(
+            {atom_id for index in reaction["products"] for atom_id in smiles_id[t2][index]},
+            key=_atom_sort_key,
+        )
+        occurrences.append(
+            ReactionOccurrence(
+                reaction=reaction_path,
+                timestep_reactants=t1,
+                timestep_products=t2,
+                reactants=reactants,
+                products=products,
+                reactant_atom_ids=reactant_atom_ids,
+                product_atom_ids=product_atom_ids,
+                simulation_index=simulation_index,
+            )
+        )
+        if first_only:
+            return occurrences
+
+    return occurrences
+
+
 def write_reaction_paths(paths: list[ReactionPath], output_file: str | Path = "paths.out") -> Path:
     """Write counted reaction paths to a tab-separated table."""
 
@@ -123,3 +184,31 @@ def write_reaction_paths(paths: list[ReactionPath], output_file: str | Path = "p
 
 def _format_reaction(reactants: list[str], products: list[str]) -> str:
     return f"{reactants} -> {products}"
+
+
+def _iter_reactions(smiles: dict[int, list[str]], smiles_id: dict[int, list[list[str]]]):
+    timesteps = sorted(smiles.keys())
+    for t1, t2 in zip(timesteps, timesteps[1:], strict=False):
+        atom_mapping_t1 = map_atoms_to_mols(smiles[t1], smiles_id[t1])
+        atom_mapping_t2 = map_atoms_to_mols(smiles[t2], smiles_id[t2])
+
+        pointer_t1_t2: list[list[int]] = []
+        pointer_t2_t1: list[list[int]] = []
+
+        for molecule in smiles_id[t1]:
+            products = {atom_mapping_t2[atom_id][1] for atom_id in molecule if atom_id in atom_mapping_t2}
+            pointer_t1_t2.append(sorted(products))
+
+        for molecule in smiles_id[t2]:
+            reactants = {atom_mapping_t1[atom_id][1] for atom_id in molecule if atom_id in atom_mapping_t1}
+            pointer_t2_t1.append(sorted(reactants))
+
+        for reaction in reaction_clusters(pointer_t1_t2, pointer_t2_t1):
+            yield t1, t2, reaction
+
+
+def _atom_sort_key(atom_id: str) -> tuple[int, str]:
+    try:
+        return int(atom_id), atom_id
+    except ValueError:
+        return 0, atom_id

@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from lammpalyze.analysis import LammpalyzeProject
+from lammpalyze.ovito import create_reaction_scene, launch_ovito_scene, normalize_reaction_path
 from lammpalyze.plotting import plot_species, plot_thermo
 from lammpalyze.smiles import formulas_for_simulation, molecule_photo_image, smiles_for_formula
 
@@ -49,13 +50,16 @@ class LammpalyzeGUI:
         species_tab = ttk.Frame(tabs)
         thermo_tab = ttk.Frame(tabs)
         smiles_tab = ttk.Frame(tabs)
+        reaction_tab = ttk.Frame(tabs)
         tabs.add(species_tab, text="Species analysis")
         tabs.add(thermo_tab, text="Thermodynamic data")
         tabs.add(smiles_tab, text="Molecule visualization")
+        tabs.add(reaction_tab, text="Reaction visualization")
 
         self._build_species_tab(species_tab)
         self._build_thermo_tab(thermo_tab)
         self._build_smiles_tab(smiles_tab)
+        self._build_reaction_tab(reaction_tab)
 
     def _build_species_tab(self, parent: ttk.Frame) -> None:
         controls = ttk.Frame(parent)
@@ -192,6 +196,35 @@ class LammpalyzeGUI:
         self.molecule_label.pack(fill="both", expand=True)
         self._refresh_formula_options()
 
+    def _build_reaction_tab(self, parent: ttk.Frame) -> None:
+        controls = ttk.Frame(parent)
+        controls.pack(side="left", fill="y", padx=8, pady=8)
+        output = ttk.Frame(parent)
+        output.pack(side="right", fill="both", expand=True, padx=8, pady=8)
+
+        reaction_values = [path.reaction for path in self.project.reaction_paths()]
+        self.reaction_path_value = tk.StringVar(value=reaction_values[0] if reaction_values else "")
+
+        ttk.Label(controls, text="Reaction path").pack(anchor="w")
+        self.reaction_path_combo = ttk.Combobox(
+            controls,
+            textvariable=self.reaction_path_value,
+            values=reaction_values,
+            width=70,
+        )
+        self.reaction_path_combo.pack(fill="x", pady=(0, 12))
+        ttk.Button(controls, text="Open first occurrence in OVITO", command=self._open_reaction_in_ovito).pack(
+            fill="x"
+        )
+
+        self.reaction_status = ttk.Label(
+            output,
+            text="Select or paste a reaction path from paths.out, then open it in OVITO.",
+            wraplength=620,
+            justify="left",
+        )
+        self.reaction_status.pack(anchor="nw", padx=8, pady=8)
+
     def _plot_species(self) -> None:
         try:
             simulations = self._selected_species_simulations()
@@ -233,6 +266,24 @@ class LammpalyzeGUI:
             self.molecule_label.configure(image=self._molecule_photo)
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("SMILES visualization failed", str(exc))
+
+    def _open_reaction_in_ovito(self) -> None:
+        try:
+            reaction = normalize_reaction_path(self.reaction_path_value.get())
+            if not reaction:
+                raise ValueError("Select or paste a reaction path.")
+            simulation, occurrence = self.project.first_reaction_occurrence(reaction)
+            scene = create_reaction_scene(simulation, occurrence)
+            launch_ovito_scene(scene)
+            self.reaction_status.configure(
+                text=(
+                    f"Opened OVITO scene for simulation {simulation.index}: "
+                    f"{occurrence.timestep_reactants} -> {occurrence.timestep_products}\n"
+                    f"Scene files: {scene.directory}"
+                )
+            )
+        except Exception as exc:  # pragma: no cover - GUI feedback.
+            messagebox.showerror("OVITO visualization failed", str(exc))
 
     def _selected_species_simulations(self):
         available = [simulation for simulation in self.project.simulations if simulation.species_df is not None]

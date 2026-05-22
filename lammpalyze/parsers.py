@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
 from typing import Iterator
@@ -16,6 +17,35 @@ try:  # RDKit is only needed for bond/SMILES parsing.
 except ImportError:  # pragma: no cover - depends on optional external package.
     Chem = None
     Descriptors = None
+
+
+@dataclass(frozen=True)
+class TrajectoryAtom:
+    """One atom entry from a LAMMPS trajectory frame."""
+
+    atom_id: int
+    atom_type: int
+    x: float
+    y: float
+    z: float
+
+
+@dataclass(frozen=True)
+class TrajectoryFrame:
+    """A LAMMPS trajectory frame with bounds and atom positions."""
+
+    timestep: int
+    bounds: np.ndarray
+    atoms: list[TrajectoryAtom]
+
+
+@dataclass(frozen=True)
+class ReaxBond:
+    """One bond from a ReaxFF bonds frame."""
+
+    atom_i: int
+    atom_j: int
+    order: float
 
 
 def eval_species(species_file: str | Path) -> tuple[list[str], dict[str, list[int]], pd.DataFrame]:
@@ -236,6 +266,96 @@ def parse_traj(filename: str | Path) -> Iterator[np.ndarray]:
                 yield wrapped
 
 
+def read_lammpstrj_frame(filename: str | Path, target_timestep: int) -> TrajectoryFrame:
+    """Read one trajectory frame by timestep for external visualization."""
+
+    with Path(filename).open(encoding="utf-8") as handle:
+        while True:
+            line = handle.readline()
+            if not line:
+                break
+            if not line.startswith("ITEM: TIMESTEP"):
+                continue
+
+            timestep = int(handle.readline().strip())
+            number_header = handle.readline()
+            if not number_header.startswith("ITEM: NUMBER OF ATOMS"):
+                raise ValueError(f"Malformed trajectory frame at timestep {timestep} in {filename}")
+            n_atoms = int(handle.readline().strip())
+
+            bounds_header = handle.readline()
+            if not bounds_header.startswith("ITEM: BOX BOUNDS"):
+                raise ValueError(f"Missing box bounds at timestep {timestep} in {filename}")
+            bounds = np.array([[float(value) for value in handle.readline().split()[:2]] for _ in range(3)])
+
+            atoms_header = handle.readline()
+            if not atoms_header.startswith("ITEM: ATOMS"):
+                raise ValueError(f"Missing atom table at timestep {timestep} in {filename}")
+            columns = atoms_header.split()[2:]
+
+            atoms = []
+            for _ in range(n_atoms):
+                values = handle.readline().split()
+                if timestep == target_timestep:
+                    atoms.append(_trajectory_atom_from_values(columns, values))
+
+            if timestep == target_timestep:
+                return TrajectoryFrame(timestep=timestep, bounds=bounds, atoms=atoms)
+
+    raise ValueError(f"Timestep {target_timestep} not found in trajectory file {filename}")
+
+
+def read_reax_bonds_frame(filename: str | Path, target_timestep: int) -> list[ReaxBond]:
+    """Read bonds from one ReaxFF bond-file frame."""
+
+    bonds: list[ReaxBond] = []
+    in_target = False
+    n_atoms: int | None = None
+    rows_read = 0
+
+    with Path(filename).open(encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line.startswith("#"):
+                if "Timestep" in line:
+                    if in_target:
+                        return bonds
+                    timestep = int(line.split()[-1])
+                    in_target = timestep == target_timestep
+                    n_atoms = None
+                    rows_read = 0
+                    bonds = []
+                elif in_target and "Number of particles" in line:
+                    n_atoms = int(line.split()[-1])
+                continue
+
+            if not in_target:
+                continue
+
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+
+            atom_i = int(parts[0])
+            n_bonds = int(parts[2])
+            bonded_atoms = [int(value) for value in parts[3 : 3 + n_bonds]]
+            bond_orders = [float(value) for value in parts[4 + n_bonds : 4 + 2 * n_bonds]]
+            for atom_j, bond_order in zip(bonded_atoms, bond_orders, strict=False):
+                if atom_i < atom_j:
+                    bonds.append(ReaxBond(atom_i=atom_i, atom_j=atom_j, order=bond_order))
+
+            rows_read += 1
+            if n_atoms is not None and rows_read >= n_atoms:
+                return bonds
+
+    if in_target:
+        return bonds
+    raise ValueError(f"Timestep {target_timestep} not found in ReaxFF bond file {filename}")
+
+
 def map_atoms_to_mols(smiles_list: list[str], ids_list: list[list[str]]) -> dict[str, tuple[str, int]]:
     """Map each atom id to its molecule SMILES and molecule index."""
 
@@ -244,6 +364,27 @@ def map_atoms_to_mols(smiles_list: list[str], ids_list: list[list[str]]) -> dict
         for atom_id in atom_ids:
             atom_to_mol[atom_id] = (smiles_list[index], index)
     return atom_to_mol
+
+
+def _trajectory_atom_from_values(columns: list[str], values: list[str]) -> TrajectoryAtom:
+    column_index = {column: index for index, column in enumerate(columns)}
+    x_column = _first_available_column(column_index, ("xu", "x", "xs"))
+    y_column = _first_available_column(column_index, ("yu", "y", "ys"))
+    z_column = _first_available_column(column_index, ("zu", "z", "zs"))
+    return TrajectoryAtom(
+        atom_id=int(float(values[column_index["id"]])),
+        atom_type=int(float(values[column_index.get("type", column_index["id"])])),
+        x=float(values[column_index[x_column]]),
+        y=float(values[column_index[y_column]]),
+        z=float(values[column_index[z_column]]),
+    )
+
+
+def _first_available_column(column_index: dict[str, int], candidates: tuple[str, ...]) -> str:
+    for column in candidates:
+        if column in column_index:
+            return column
+    raise ValueError(f"Trajectory atom table lacks coordinate columns {candidates}")
 
 
 def _store_bond_frame(

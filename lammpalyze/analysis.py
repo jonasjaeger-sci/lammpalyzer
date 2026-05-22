@@ -10,7 +10,7 @@ import pandas as pd
 
 from lammpalyze.config import LammpalyzeConfig
 from lammpalyze.parsers import eval_species, eval_thermo, parse_bonds, parse_traj
-from lammpalyze.reactions import ReactionPath, count_reaction_paths
+from lammpalyze.reactions import ReactionOccurrence, ReactionPath, count_reaction_paths, find_reaction_occurrences
 
 
 @dataclass
@@ -26,6 +26,8 @@ class LoadedSimulation:
     smiles_id: dict[int, list[list[str]]] | None = None
     chem_formulas: dict[int, list[str]] | None = None
     trajectory_path: Path | None = None
+    bond_path: Path | None = None
+    type_to_element: dict[int, str] | None = None
 
     @property
     def has_bond_data(self) -> bool:
@@ -72,6 +74,23 @@ class LammpalyzeProject:
             for reaction, count in sorted(all_paths.items(), key=lambda item: item[1], reverse=True)
         ]
 
+    def first_reaction_occurrence(self, reaction: str) -> tuple[LoadedSimulation, ReactionOccurrence]:
+        """Return the first concrete occurrence matching ``reaction``."""
+
+        for simulation in self.simulations:
+            if simulation.smiles is None or simulation.smiles_id is None:
+                continue
+            occurrences = find_reaction_occurrences(
+                simulation.smiles,
+                simulation.smiles_id,
+                reaction_filter=reaction,
+                first_only=True,
+                simulation_index=simulation.index,
+            )
+            if occurrences:
+                return simulation, occurrences[0]
+        raise ValueError(f"No occurrence found for reaction path: {reaction}")
+
     def simulation(self, index: int) -> LoadedSimulation:
         """Return a loaded simulation by its input index."""
 
@@ -87,7 +106,9 @@ def load_project(config: LammpalyzeConfig) -> LammpalyzeProject:
     simulations: list[LoadedSimulation] = []
     for files in config.simulations:
         loaded = LoadedSimulation(index=files.index)
+        loaded.bond_path = files.bond
         loaded.trajectory_path = files.trajectory
+        loaded.type_to_element = config.type_to_element
 
         if files.species is not None:
             species, _, species_df = eval_species(files.species)
