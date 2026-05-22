@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 import sys
 from pathlib import Path
 
 from lammpalyze.analysis import load_project
 from lammpalyze.config import parse_input_file
+from lammpalyze.info import LOGO, PROGRAM_NAME, VERSION
 from lammpalyze.reactions import write_reaction_paths
+
+_DATE_FMT = "%d.%m.%Y %H:%M:%S"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,11 +33,30 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def hello_world() -> None:
+    """Print program banner and startup metadata."""
+
+    timestart = datetime.datetime.now().strftime(_DATE_FMT)
+    pyversion = sys.version.split()[0]
+    print(LOGO, flush=True)
+    print(f"{PROGRAM_NAME} version: {VERSION}", flush=True)
+    print(f"Start of execution: {timestart}", flush=True)
+    print(f"Python version: {pyversion}", flush=True)
+
+
+def bye_world() -> None:
+    """Print program shutdown timestamp."""
+
+    timeend = datetime.datetime.now().strftime(_DATE_FMT)
+    print(f"End of {PROGRAM_NAME} execution: {timeend}", flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the lammpalyze CLI."""
 
     parser = build_parser()
     args = parser.parse_args(argv)
+    hello_world()
 
     try:
         config = parse_input_file(args.input)
@@ -47,10 +70,13 @@ def main(argv: list[str] | None = None) -> int:
             from lammpalyze.gui import launch_gui
 
             launch_gui(project)
-        return 0
+        exit_code = 0
     except Exception as exc:
         print(f"lammpalyze: error: {exc}", file=sys.stderr)
-        return 1
+        exit_code = 1
+    finally:
+        bye_world()
+    return exit_code
 
 
 def _should_launch_gui(force_gui: bool, no_gui: bool) -> bool:

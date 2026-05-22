@@ -2,9 +2,11 @@
 
 from lammpalyze.analysis import LammpalyzeProject, LoadedSimulation, load_project
 from lammpalyze.config import LammpalyzeConfig, SimulationFiles, parse_input_file
+from lammpalyze.info import __version__
 from lammpalyze.reactions import ReactionPath, count_reaction_paths, write_reaction_paths
 
 __all__ = [
+    "__version__",
     "LammpalyzeConfig",
     "LammpalyzeProject",
     "LoadedSimulation",
@@ -15,5 +17,3 @@ __all__ = [
     "parse_input_file",
     "write_reaction_paths",
 ]
-
-__version__ = "0.1.0"

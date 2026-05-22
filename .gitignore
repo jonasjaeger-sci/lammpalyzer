@@ -35,6 +35,7 @@ reaction_paths*.tsv
 *.pdf
 
 # Large LAMMPS/ReaxFF output files
+LAMMPS_files/
 bonds*.reax
 *.reax
 md.lammpstrj*

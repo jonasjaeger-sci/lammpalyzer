@@ -5,6 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from lammpalyze.analysis import LammpalyzeProject
@@ -26,7 +27,11 @@ class LammpalyzeGUI:
         self._species_canvas: FigureCanvasTkAgg | None = None
         self._thermo_canvases: list[FigureCanvasTkAgg] = []
         self._molecule_photo = None
+        self._closed = False
         self._build()
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.root.bind("<Control-q>", lambda _event: self.close())
+        self.root.bind("<Control-Q>", lambda _event: self.close())
 
     def run(self) -> None:
         """Start the Tkinter event loop."""
@@ -34,6 +39,10 @@ class LammpalyzeGUI:
         self.root.mainloop()
 
     def _build(self) -> None:
+        top_bar = ttk.Frame(self.root)
+        top_bar.pack(fill="x", padx=8, pady=(8, 0))
+        ttk.Button(top_bar, text="Quit", command=self.close).pack(side="right")
+
         tabs = ttk.Notebook(self.root)
         tabs.pack(fill="both", expand=True, padx=8, pady=8)
 
@@ -74,9 +83,19 @@ class LammpalyzeGUI:
         self.species_list = tk.Listbox(controls, selectmode="multiple", exportselection=False, height=18)
         for name in species:
             self.species_list.insert("end", name)
+        if species:
+            self.species_list.select_set(0, "end")
+        self.species_list.bind("<<ListboxSelect>>", lambda _event: self._update_species_toggle_label())
         self.species_list.pack(fill="both", expand=True, pady=(0, 12))
 
+        self.species_toggle_button = ttk.Button(
+            controls,
+            text="Deselect all species",
+            command=self._toggle_species_selection,
+        )
+        self.species_toggle_button.pack(fill="x", pady=(0, 8))
         ttk.Button(controls, text="Plot", command=self._plot_species).pack(fill="x")
+        self._update_species_toggle_label()
 
     def _build_thermo_tab(self, parent: ttk.Frame) -> None:
         controls = ttk.Frame(parent)
@@ -155,7 +174,7 @@ class LammpalyzeGUI:
             if not parameter:
                 raise ValueError("Select a thermodynamic parameter.")
             for canvas in self._thermo_canvases:
-                canvas.get_tk_widget().destroy()
+                self._destroy_canvas(canvas)
             self._thermo_canvases = []
             figures = plot_thermo(self.project.simulations, parameter)
             for figure in figures:
@@ -179,6 +198,49 @@ class LammpalyzeGUI:
     def _selected_species_simulations(self):
         available = [simulation for simulation in self.project.simulations if simulation.species_df is not None]
         return [available[index] for index in self.species_sim_list.curselection()]
+
+    def _toggle_species_selection(self) -> None:
+        if self.species_list.size() == 0:
+            return
+        if len(self.species_list.curselection()) == self.species_list.size():
+            self.species_list.selection_clear(0, "end")
+        else:
+            self.species_list.select_set(0, "end")
+        self._update_species_toggle_label()
+
+    def _update_species_toggle_label(self) -> None:
+        if not hasattr(self, "species_toggle_button"):
+            return
+        if self.species_list.size() == 0:
+            self.species_toggle_button.configure(text="Select all species")
+        elif len(self.species_list.curselection()) == self.species_list.size():
+            self.species_toggle_button.configure(text="Deselect all species")
+        else:
+            self.species_toggle_button.configure(text="Select all species")
+
+    def close(self) -> None:
+        """Close the GUI and release Matplotlib/Tk resources promptly."""
+
+        if self._closed:
+            return
+        self._closed = True
+
+        if self._species_canvas is not None:
+            self._destroy_canvas(self._species_canvas)
+            self._species_canvas = None
+
+        for canvas in self._thermo_canvases:
+            self._destroy_canvas(canvas)
+        self._thermo_canvases = []
+
+        self._molecule_photo = None
+        plt.close("all")
+
+        try:
+            self.root.quit()
+            self.root.destroy()
+        except tk.TclError:
+            pass
 
     def _refresh_formula_options(self) -> None:
         simulation = self._selected_smiles_simulation()
@@ -205,14 +267,25 @@ class LammpalyzeGUI:
     def _replace_canvas(self, attr_name: str, parent: ttk.Frame, figure) -> None:
         old_canvas = getattr(self, attr_name)
         if old_canvas is not None:
-            old_canvas.get_tk_widget().destroy()
+            self._destroy_canvas(old_canvas)
         canvas = FigureCanvasTkAgg(figure, master=parent)
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True)
         setattr(self, attr_name, canvas)
 
+    def _destroy_canvas(self, canvas: FigureCanvasTkAgg) -> None:
+        try:
+            plt.close(canvas.figure)
+            canvas.get_tk_widget().destroy()
+        except tk.TclError:
+            pass
+
 
 def launch_gui(project: LammpalyzeProject) -> None:
     """Launch the lammpalyze GUI."""
 
-    LammpalyzeGUI(project).run()
+    gui = LammpalyzeGUI(project)
+    try:
+        gui.run()
+    finally:
+        gui.close()
