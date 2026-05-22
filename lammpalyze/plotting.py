@@ -23,6 +23,38 @@ SPECIES_DARK_COLORS = [
     "#ffd166",
 ]
 
+THERMO_DARK_COLORS = {
+    "line": "#4cc9f0",
+    "mean": "#f9c74f",
+    "std": "#f72585",
+    "figure": "#0b1020",
+    "axes": "#111827",
+    "text": "#e5e7eb",
+    "title": "#f9fafb",
+    "tick": "#d1d5db",
+    "grid": "#374151",
+    "spine": "#6b7280",
+}
+
+THERMO_LINE_COLORS = [
+    "#4cc9f0",
+    "#f72585",
+    "#90be6d",
+    "#f9844a",
+    "#c77dff",
+    "#ffd166",
+]
+
+THERMO_UNITS = {
+    "PotEng": "kcal/mol",
+    "KinEng": "kcal/mol",
+    "TotEng": "kcal/mol",
+    "Temp": "K",
+    "Press": "atm",
+    "Vol": "A³",
+    "Volume": "A³",
+}
+
 
 def plot_species(simulations: list[LoadedSimulation], species: list[str]):
     """Plot selected species counts over time for each simulation."""
@@ -74,36 +106,112 @@ def plot_species(simulations: list[LoadedSimulation], species: list[str]):
 
 
 def plot_thermo(simulations: list[LoadedSimulation], parameter: str):
-    """Create one figure per simulation and one averaged figure."""
+    """Create one combined simulation figure and one averaged figure."""
 
     figures = []
-    for simulation in simulations:
-        if simulation.thermo_df is None or parameter not in simulation.thermo_df.columns:
-            continue
-        fig, ax = plt.subplots()
-        ax.plot(simulation.thermo_df["Step"], simulation.thermo_df[parameter])
-        ax.set_xlabel("Step")
-        ax.set_ylabel(parameter)
-        ax.set_title(f"Simulation {simulation.index}: {parameter}")
-        ax.grid(True)
-        fig.tight_layout()
-        figures.append(fig)
+    y_label = thermo_axis_label(parameter)
+    plottable = [
+        simulation
+        for simulation in simulations
+        if simulation.thermo_df is not None and parameter in simulation.thermo_df.columns
+    ]
+    if not plottable:
+        raise ValueError(f"No thermo data found for parameter {parameter!r}.")
 
-    averaged = aggregate_thermo(simulations, parameter)
-    fig, ax = plt.subplots()
-    ax.plot(averaged["Step"], averaged["mean"], label="Mean")
+    fig, ax = plt.subplots(figsize=(8.5, 4.8), facecolor=THERMO_DARK_COLORS["figure"])
+    color_cycle = cycle(THERMO_LINE_COLORS)
+    for simulation in plottable:
+        ax.plot(
+            simulation.thermo_df["Step"],
+            simulation.thermo_df[parameter],
+            color=next(color_cycle),
+            linewidth=2.0,
+            label=f"Simulation {simulation.index}",
+        )
+    _style_dark_axes(ax, f"Selected simulations: {parameter}", y_label)
+    legend = ax.legend(frameon=False)
+    for text in legend.get_texts():
+        text.set_color(THERMO_DARK_COLORS["text"])
+    fig.tight_layout()
+    figures.append(fig)
+
+    averaged = aggregate_thermo(plottable, parameter)
+    fig, ax = plt.subplots(figsize=(8.5, 4.8), facecolor=THERMO_DARK_COLORS["figure"])
+    ax.plot(averaged["Step"], averaged["mean"], color=THERMO_DARK_COLORS["mean"], linewidth=2.2, label="Mean")
     ax.fill_between(
         averaged["Step"],
         averaged["mean"] - averaged["std"],
         averaged["mean"] + averaged["std"],
         alpha=0.25,
+        color=THERMO_DARK_COLORS["std"],
         label="Std. dev.",
     )
-    ax.set_xlabel("Step")
-    ax.set_ylabel(parameter)
-    ax.set_title(f"Average {parameter}")
-    ax.grid(True)
-    ax.legend()
+    _style_dark_axes(ax, f"Average {parameter}", y_label)
+    legend = ax.legend(frameon=False)
+    for text in legend.get_texts():
+        text.set_color(THERMO_DARK_COLORS["text"])
     fig.tight_layout()
     figures.append(fig)
     return figures
+
+
+def plot_thermo_per_simulation(simulations: list[LoadedSimulation], parameter: str):
+    """Create one figure per simulation and one averaged figure.
+
+    Kept for callers that still want the old behavior.
+    """
+
+    figures = []
+    y_label = thermo_axis_label(parameter)
+    for simulation in simulations:
+        if simulation.thermo_df is None or parameter not in simulation.thermo_df.columns:
+            continue
+        fig, ax = plt.subplots(figsize=(8.5, 4.8), facecolor=THERMO_DARK_COLORS["figure"])
+        ax.plot(
+            simulation.thermo_df["Step"],
+            simulation.thermo_df[parameter],
+            color=THERMO_DARK_COLORS["line"],
+            linewidth=2.0,
+        )
+        _style_dark_axes(ax, f"Simulation {simulation.index}: {parameter}", y_label)
+        fig.tight_layout()
+        figures.append(fig)
+
+    averaged = aggregate_thermo(simulations, parameter)
+    fig, ax = plt.subplots(figsize=(8.5, 4.8), facecolor=THERMO_DARK_COLORS["figure"])
+    ax.plot(averaged["Step"], averaged["mean"], color=THERMO_DARK_COLORS["mean"], linewidth=2.2, label="Mean")
+    ax.fill_between(
+        averaged["Step"],
+        averaged["mean"] - averaged["std"],
+        averaged["mean"] + averaged["std"],
+        alpha=0.25,
+        color=THERMO_DARK_COLORS["std"],
+        label="Std. dev.",
+    )
+    _style_dark_axes(ax, f"Average {parameter}", y_label)
+    legend = ax.legend(frameon=False)
+    for text in legend.get_texts():
+        text.set_color(THERMO_DARK_COLORS["text"])
+    fig.tight_layout()
+    figures.append(fig)
+    return figures
+
+
+def thermo_axis_label(parameter: str) -> str:
+    """Return a thermodynamic y-axis label with units when known."""
+
+    unit = THERMO_UNITS.get(parameter)
+    if unit is None:
+        return parameter
+    return f"{parameter} [{unit}]"
+
+
+def _style_dark_axes(ax, title: str, y_label: str) -> None:
+    ax.set_facecolor(THERMO_DARK_COLORS["axes"])
+    ax.set_xlabel("Step", color=THERMO_DARK_COLORS["text"], fontsize=16, fontweight="bold")
+    ax.set_ylabel(y_label, color=THERMO_DARK_COLORS["text"], fontsize=16, fontweight="bold")
+    ax.set_title(title, color=THERMO_DARK_COLORS["title"], pad=12)
+    ax.tick_params(axis="both", colors=THERMO_DARK_COLORS["tick"])
+    ax.grid(True, color=THERMO_DARK_COLORS["grid"], alpha=0.55, linewidth=0.8)
+    for spine in ax.spines.values():
+        spine.set_color(THERMO_DARK_COLORS["spine"])

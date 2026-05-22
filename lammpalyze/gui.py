@@ -102,7 +102,42 @@ class LammpalyzeGUI:
         controls.pack(side="left", fill="y", padx=8, pady=8)
         plot_area = ttk.Frame(parent)
         plot_area.pack(side="right", fill="both", expand=True, padx=8, pady=8)
-        self._thermo_plot_area = plot_area
+        self._thermo_scroll_canvas = tk.Canvas(plot_area, highlightthickness=0, background="#0b1020")
+        thermo_scrollbar = ttk.Scrollbar(
+            plot_area,
+            orient="vertical",
+            command=self._thermo_scroll_canvas.yview,
+        )
+        self._thermo_plot_area = ttk.Frame(self._thermo_scroll_canvas)
+        self._thermo_window = self._thermo_scroll_canvas.create_window(
+            (0, 0),
+            window=self._thermo_plot_area,
+            anchor="nw",
+        )
+        self._thermo_scroll_canvas.configure(yscrollcommand=thermo_scrollbar.set)
+        self._thermo_plot_area.bind(
+            "<Configure>",
+            lambda _event: self._thermo_scroll_canvas.configure(
+                scrollregion=self._thermo_scroll_canvas.bbox("all")
+            ),
+        )
+        self._thermo_scroll_canvas.bind(
+            "<Configure>",
+            lambda event: self._thermo_scroll_canvas.itemconfigure(self._thermo_window, width=event.width),
+        )
+        self._thermo_scroll_canvas.bind("<Enter>", self._bind_thermo_mousewheel)
+        self._thermo_scroll_canvas.bind("<Leave>", self._unbind_thermo_mousewheel)
+        self._thermo_scroll_canvas.pack(side="left", fill="both", expand=True)
+        thermo_scrollbar.pack(side="right", fill="y")
+
+        ttk.Label(controls, text="Simulations").pack(anchor="w")
+        self.thermo_sim_list = tk.Listbox(controls, selectmode="multiple", exportselection=False, height=6)
+        for simulation in self.project.simulations:
+            if simulation.thermo_df is not None:
+                self.thermo_sim_list.insert("end", f"Simulation {simulation.index}")
+        if self.thermo_sim_list.size():
+            self.thermo_sim_list.select_set(0, "end")
+        self.thermo_sim_list.pack(fill="x", pady=(0, 12))
 
         available = sorted(
             {
@@ -173,15 +208,19 @@ class LammpalyzeGUI:
             parameter = self.thermo_parameter.get()
             if not parameter:
                 raise ValueError("Select a thermodynamic parameter.")
+            simulations = self._selected_thermo_simulations()
+            if not simulations:
+                raise ValueError("Select at least one simulation.")
             for canvas in self._thermo_canvases:
                 self._destroy_canvas(canvas)
             self._thermo_canvases = []
-            figures = plot_thermo(self.project.simulations, parameter)
+            figures = plot_thermo(simulations, parameter)
             for figure in figures:
                 canvas = FigureCanvasTkAgg(figure, master=self._thermo_plot_area)
                 canvas.draw()
-                canvas.get_tk_widget().pack(fill="both", expand=True)
+                canvas.get_tk_widget().pack(fill="x", expand=False, pady=(0, 12))
                 self._thermo_canvases.append(canvas)
+            self._thermo_scroll_canvas.yview_moveto(0)
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("Thermo plotting failed", str(exc))
 
@@ -198,6 +237,10 @@ class LammpalyzeGUI:
     def _selected_species_simulations(self):
         available = [simulation for simulation in self.project.simulations if simulation.species_df is not None]
         return [available[index] for index in self.species_sim_list.curselection()]
+
+    def _selected_thermo_simulations(self):
+        available = [simulation for simulation in self.project.simulations if simulation.thermo_df is not None]
+        return [available[index] for index in self.thermo_sim_list.curselection()]
 
     def _toggle_species_selection(self) -> None:
         if self.species_list.size() == 0:
@@ -279,6 +322,25 @@ class LammpalyzeGUI:
             canvas.get_tk_widget().destroy()
         except tk.TclError:
             pass
+
+    def _bind_thermo_mousewheel(self, _event) -> None:
+        self.root.bind_all("<MouseWheel>", self._on_thermo_mousewheel)
+        self.root.bind_all("<Button-4>", self._on_thermo_mousewheel)
+        self.root.bind_all("<Button-5>", self._on_thermo_mousewheel)
+
+    def _unbind_thermo_mousewheel(self, _event) -> None:
+        self.root.unbind_all("<MouseWheel>")
+        self.root.unbind_all("<Button-4>")
+        self.root.unbind_all("<Button-5>")
+
+    def _on_thermo_mousewheel(self, event) -> None:
+        if getattr(event, "num", None) == 4:
+            delta = -1
+        elif getattr(event, "num", None) == 5:
+            delta = 1
+        else:
+            delta = -1 * int(event.delta / 120)
+        self._thermo_scroll_canvas.yview_scroll(delta, "units")
 
 
 def launch_gui(project: LammpalyzeProject) -> None:
