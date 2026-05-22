@@ -1,0 +1,49 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Editor, OS, and local agent metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.agents/
+.codex/
+
+# Local run outputs
+paths.out
+reaction_paths*.tsv
+*.png
+*.pdf
+
+# Large LAMMPS/ReaxFF output files
+bonds*.reax
+*.reax
+md.lammpstrj*
+*.lammpstrj
+species*.out
+species*_main.out
+main_thermo*.log
+thermo*.log
+
+# Local input files that often contain machine-specific paths
+lmplyz.inp
+*.local.inp

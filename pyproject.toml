@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lammpalyze"
+version = "0.1.0"
+description = "Analysis tools for LAMMPS/ReaxFF output files"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "lammpalyze contributors" }]
+dependencies = [
+  "matplotlib>=3.7",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+smiles = ["rdkit>=2023.9"]
+test = ["pytest>=7.0"]
+
+[project.scripts]
+lammpalyze = "lammpalyze.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["lammpalyze*"]
