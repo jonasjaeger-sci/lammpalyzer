@@ -18,10 +18,11 @@ THERMO_DEFAULTS = ["Temp", "PotEng", "KinEng", "Press", "Volume", "Density"]
 
 
 class LammpalyzeGUI:
-    """Three-tab GUI for species, thermo, and SMILES visualization."""
+    """GUI for species, thermo, SMILES, and reaction visualization."""
 
     def __init__(self, project: LammpalyzeProject) -> None:
         self.project = project
+        self._reaction_paths = project.reaction_paths()
         self.root = tk.Tk()
         self.root.title("lammpalyze")
         self.root.geometry("1100x760")
@@ -50,15 +51,18 @@ class LammpalyzeGUI:
         species_tab = ttk.Frame(tabs)
         thermo_tab = ttk.Frame(tabs)
         smiles_tab = ttk.Frame(tabs)
+        reaction_table_tab = ttk.Frame(tabs)
         reaction_tab = ttk.Frame(tabs)
         tabs.add(species_tab, text="Species analysis")
         tabs.add(thermo_tab, text="Thermodynamic data")
         tabs.add(smiles_tab, text="Molecule visualization")
+        tabs.add(reaction_table_tab, text="Reaction paths")
         tabs.add(reaction_tab, text="Reaction visualization")
 
         self._build_species_tab(species_tab)
         self._build_thermo_tab(thermo_tab)
         self._build_smiles_tab(smiles_tab)
+        self._build_reaction_table_tab(reaction_table_tab)
         self._build_reaction_tab(reaction_tab)
 
     def _build_species_tab(self, parent: ttk.Frame) -> None:
@@ -136,12 +140,27 @@ class LammpalyzeGUI:
 
         ttk.Label(controls, text="Simulations").pack(anchor="w")
         self.thermo_sim_list = tk.Listbox(controls, selectmode="multiple", exportselection=False, height=6)
+        self._thermo_simulations = [simulation for simulation in self.project.simulations if simulation.thermo_df is not None]
         for simulation in self.project.simulations:
             if simulation.thermo_df is not None:
                 self.thermo_sim_list.insert("end", f"Simulation {simulation.index}")
         if self.thermo_sim_list.size():
             self.thermo_sim_list.select_set(0, "end")
+        self.thermo_sim_list.bind(
+            "<<ListboxSelect>>",
+            lambda _event: self._update_thermo_step_controls(preserve=True),
+        )
         self.thermo_sim_list.pack(fill="x", pady=(0, 12))
+
+        ttk.Label(controls, text="Legend labels").pack(anchor="w")
+        self.thermo_label_vars: dict[int, tk.StringVar] = {}
+        labels_frame = ttk.Frame(controls)
+        labels_frame.pack(fill="x", pady=(0, 12))
+        for simulation in self._thermo_simulations:
+            ttk.Label(labels_frame, text=f"Simulation {simulation.index}").pack(anchor="w")
+            label_var = tk.StringVar()
+            self.thermo_label_vars[simulation.index] = label_var
+            ttk.Entry(labels_frame, textvariable=label_var).pack(fill="x", pady=(0, 6))
 
         available = sorted(
             {
@@ -158,6 +177,33 @@ class LammpalyzeGUI:
         ttk.Combobox(controls, textvariable=self.thermo_parameter, values=values, state="readonly").pack(
             fill="x", pady=(0, 12)
         )
+        ttk.Label(controls, text="Step range").pack(anchor="w")
+        self._thermo_step_bounds: tuple[float, float] | None = None
+        self._updating_thermo_step_controls = False
+        self.thermo_step_min = tk.DoubleVar()
+        self.thermo_step_max = tk.DoubleVar()
+        self.thermo_step_label = tk.StringVar()
+        ttk.Label(controls, textvariable=self.thermo_step_label).pack(anchor="w", pady=(0, 4))
+        self.thermo_step_min_slider = ttk.Scale(
+            controls,
+            orient="horizontal",
+            variable=self.thermo_step_min,
+            command=lambda _value: self._on_thermo_step_slider("min"),
+        )
+        self.thermo_step_min_slider.pack(fill="x", pady=(0, 4))
+        self.thermo_step_max_slider = ttk.Scale(
+            controls,
+            orient="horizontal",
+            variable=self.thermo_step_max,
+            command=lambda _value: self._on_thermo_step_slider("max"),
+        )
+        self.thermo_step_max_slider.pack(fill="x", pady=(0, 8))
+        ttk.Button(
+            controls,
+            text="Full step range",
+            command=lambda: self._update_thermo_step_controls(preserve=False),
+        ).pack(fill="x", pady=(0, 12))
+        self._update_thermo_step_controls(preserve=False)
         ttk.Button(controls, text="Plot", command=self._plot_thermo).pack(fill="x")
 
     def _build_smiles_tab(self, parent: ttk.Frame) -> None:
@@ -196,13 +242,62 @@ class LammpalyzeGUI:
         self.molecule_label.pack(fill="both", expand=True)
         self._refresh_formula_options()
 
+    def _build_reaction_table_tab(self, parent: ttk.Frame) -> None:
+        table_frame = ttk.Frame(parent)
+        table_frame.pack(fill="both", expand=True, padx=8, pady=8)
+
+        columns = ("count", "reaction")
+        self.reaction_table = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+        )
+        self.reaction_table.heading("count", text="Count")
+        self.reaction_table.heading("reaction", text="Reaction path (SMILES)")
+        self.reaction_table.column("count", width=90, minwidth=70, anchor="e", stretch=False)
+        self.reaction_table.column("reaction", width=980, minwidth=360, anchor="w", stretch=True)
+
+        y_scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.reaction_table.yview)
+        x_scrollbar = ttk.Scrollbar(table_frame, orient="horizontal", command=self.reaction_table.xview)
+        self.reaction_table.configure(yscrollcommand=y_scrollbar.set, xscrollcommand=x_scrollbar.set)
+
+        self.reaction_table.grid(row=0, column=0, sticky="nsew")
+        y_scrollbar.grid(row=0, column=1, sticky="ns")
+        x_scrollbar.grid(row=1, column=0, sticky="ew")
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+
+        for path in self._reaction_paths:
+            self.reaction_table.insert("", "end", values=(path.count, path.reaction))
+        self.reaction_table.bind("<<TreeviewSelect>>", self._sync_reaction_path_copy_field)
+        self.reaction_table.bind("<Control-c>", self._copy_selected_reaction_path)
+        self.reaction_table.bind("<Control-C>", self._copy_selected_reaction_path)
+
+        copy_frame = ttk.Frame(parent)
+        copy_frame.pack(fill="x", padx=8, pady=(0, 8))
+        ttk.Label(copy_frame, text="Selected reaction path").pack(anchor="w")
+        self.reaction_path_copy_value = tk.StringVar()
+        self.reaction_path_copy_entry = ttk.Entry(
+            copy_frame,
+            textvariable=self.reaction_path_copy_value,
+            state="readonly",
+        )
+        self.reaction_path_copy_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ttk.Button(copy_frame, text="Copy", command=self._copy_selected_reaction_path).pack(side="right")
+
+        children = self.reaction_table.get_children()
+        if children:
+            self.reaction_table.selection_set(children[0])
+            self.reaction_table.focus(children[0])
+            self._sync_reaction_path_copy_field()
+
     def _build_reaction_tab(self, parent: ttk.Frame) -> None:
         controls = ttk.Frame(parent)
         controls.pack(side="left", fill="y", padx=8, pady=8)
         output = ttk.Frame(parent)
         output.pack(side="right", fill="both", expand=True, padx=8, pady=8)
 
-        reaction_values = [path.reaction for path in self.project.reaction_paths()]
+        reaction_values = [path.reaction for path in self._reaction_paths]
         self.reaction_path_value = tk.StringVar(value=reaction_values[0] if reaction_values else "")
 
         ttk.Label(controls, text="Reaction path").pack(anchor="w")
@@ -247,7 +342,13 @@ class LammpalyzeGUI:
             for canvas in self._thermo_canvases:
                 self._destroy_canvas(canvas)
             self._thermo_canvases = []
-            figures = plot_thermo(simulations, parameter)
+            legend_labels = self._thermo_legend_labels()
+            figures = plot_thermo(
+                simulations,
+                parameter,
+                legend_labels=legend_labels,
+                step_range=self._thermo_step_range(),
+            )
             for figure in figures:
                 canvas = FigureCanvasTkAgg(figure, master=self._thermo_plot_area)
                 canvas.draw()
@@ -290,8 +391,109 @@ class LammpalyzeGUI:
         return [available[index] for index in self.species_sim_list.curselection()]
 
     def _selected_thermo_simulations(self):
-        available = [simulation for simulation in self.project.simulations if simulation.thermo_df is not None]
-        return [available[index] for index in self.thermo_sim_list.curselection()]
+        return [self._thermo_simulations[index] for index in self.thermo_sim_list.curselection()]
+
+    def _thermo_legend_labels(self) -> dict[int, str]:
+        return {index: label_var.get() for index, label_var in self.thermo_label_vars.items()}
+
+    def _thermo_step_range(self) -> tuple[float, float] | None:
+        if self._thermo_step_bounds is None:
+            return None
+        return tuple(sorted((self.thermo_step_min.get(), self.thermo_step_max.get())))
+
+    def _update_thermo_step_controls(self, preserve: bool) -> None:
+        bounds = self._thermo_step_bounds_for_simulations(self._selected_thermo_simulations())
+        if bounds is None:
+            bounds = self._thermo_step_bounds_for_simulations(self._thermo_simulations)
+        previous_bounds = self._thermo_step_bounds
+        self._thermo_step_bounds = bounds
+        if bounds is None:
+            self.thermo_step_label.set("No step data")
+            self.thermo_step_min_slider.configure(state="disabled")
+            self.thermo_step_max_slider.configure(state="disabled")
+            return
+
+        lower, upper = bounds
+        if preserve and previous_bounds is not None:
+            current_lower = self.thermo_step_min.get()
+            current_upper = self.thermo_step_max.get()
+            lower_value = min(max(current_lower, lower), upper)
+            upper_value = min(max(current_upper, lower), upper)
+            if lower_value > upper_value or (lower_value == upper_value and lower != upper):
+                lower_value, upper_value = lower, upper
+        else:
+            lower_value, upper_value = lower, upper
+
+        self._updating_thermo_step_controls = True
+        self.thermo_step_min_slider.configure(from_=lower, to=upper)
+        self.thermo_step_max_slider.configure(from_=lower, to=upper)
+        self.thermo_step_min.set(lower_value)
+        self.thermo_step_max.set(upper_value)
+        state = "normal" if lower != upper else "disabled"
+        self.thermo_step_min_slider.configure(state=state)
+        self.thermo_step_max_slider.configure(state=state)
+        self._updating_thermo_step_controls = False
+        self._refresh_thermo_step_label()
+
+    def _thermo_step_bounds_for_simulations(self, simulations) -> tuple[float, float] | None:
+        bounds = []
+        for simulation in simulations:
+            if simulation.thermo_df is None or "Step" not in simulation.thermo_df.columns:
+                continue
+            steps = simulation.thermo_df["Step"].dropna()
+            if steps.empty:
+                continue
+            bounds.append((float(steps.min()), float(steps.max())))
+        if not bounds:
+            return None
+        return min(bound[0] for bound in bounds), max(bound[1] for bound in bounds)
+
+    def _on_thermo_step_slider(self, changed: str) -> None:
+        if self._updating_thermo_step_controls:
+            return
+        lower = self.thermo_step_min.get()
+        upper = self.thermo_step_max.get()
+        if lower > upper:
+            if changed == "min":
+                self.thermo_step_max.set(lower)
+            else:
+                self.thermo_step_min.set(upper)
+        self._refresh_thermo_step_label()
+
+    def _refresh_thermo_step_label(self) -> None:
+        if self._thermo_step_bounds is None:
+            self.thermo_step_label.set("No step data")
+            return
+        lower, upper = self._thermo_step_range() or self._thermo_step_bounds
+        self.thermo_step_label.set(
+            f"{self._format_step_value(lower)} to {self._format_step_value(upper)}"
+        )
+
+    @staticmethod
+    def _format_step_value(value: float) -> str:
+        if float(value).is_integer():
+            return str(int(value))
+        return f"{value:g}"
+
+    def _selected_reaction_path_from_table(self) -> str:
+        selected = self.reaction_table.selection()
+        item_id = selected[0] if selected else self.reaction_table.focus()
+        if not item_id:
+            return ""
+        values = self.reaction_table.item(item_id, "values")
+        return values[1] if len(values) > 1 else ""
+
+    def _sync_reaction_path_copy_field(self, _event=None) -> None:
+        self.reaction_path_copy_value.set(self._selected_reaction_path_from_table())
+
+    def _copy_selected_reaction_path(self, _event=None) -> str:
+        reaction = self._selected_reaction_path_from_table()
+        if reaction:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(reaction)
+            self.root.update_idletasks()
+            self.reaction_path_copy_value.set(reaction)
+        return "break"
 
     def _toggle_species_selection(self) -> None:
         if self.species_list.size() == 0:

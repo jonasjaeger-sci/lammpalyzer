@@ -1,0 +1,58 @@
+# Simulation Input file for EC_Li_60_40 Electrolyte system
+
+#--------------------------------------
+# Simulation Setup
+#--------------------------------------
+
+# global
+units           real
+dimension	3
+processors	* * *
+boundary	p p p
+
+# read/create box and particles
+atom_style	charge
+read_data	EC_Li_60_40_lammps_charge.data
+velocity        all create 315.0 43 dist gaussian mom yes rot yes
+
+# define terminal outputs during simulation
+thermo		100
+thermo_style	custom step temp pe ke press vol density
+dump		2 all custom 100 md.lammpstrj_R2 id type q xu yu zu 
+dump_modify	2 sort id
+
+# force field settings
+pair_style	reaxff lmp_control
+pair_coeff	* * CHOSMoNiLiBFPN.ff C H Li O
+
+# define charge equilibration to consider charged behaviour
+fix		qeq all qeq/reaxff 1 0.0 10.0 1.0e-6 reaxff
+
+# dump a file of bond orders for each timesteps
+fix         	reaxbonds all reaxff/bonds 100 bonds_R2.reax
+
+# nearest neighbor list settings
+neighbor	2 bin
+neigh_modify	every 1 delay 0 check yes
+
+#--------------------------------------
+# Main simulation
+#--------------------------------------
+
+log		main_thermo_R2.log
+
+# production run
+fix		1 all nvt temp 315.0 315.0 10
+fix 		2 all reaxff/species 1 2 20 species_R2_main.out cutoff 1 1 0.3 cutoff 1 2 0.3 cutoff 1 4 0.3 &
+		cutoff 2 2 0.3 cutoff 2 4 0.3 cutoff 4 4 0.3 cutoff 3 3 0.8 cutoff 3 4 0.55 cutoff 3 1*2 0.3		
+timestep	0.1
+run		25000
+unfix		1
+unfix		2
+
+#--------------------------------------
+# Data dump
+#--------------------------------------
+
+write_data	EC_Li_60_40_nvt_300K_R2.dat
+write_restart   EC_Li_60_40_nvt_300K_R2.rest 

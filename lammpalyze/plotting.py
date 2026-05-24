@@ -105,7 +105,12 @@ def plot_species(simulations: list[LoadedSimulation], species: list[str]):
     return fig
 
 
-def plot_thermo(simulations: list[LoadedSimulation], parameter: str):
+def plot_thermo(
+    simulations: list[LoadedSimulation],
+    parameter: str,
+    legend_labels: dict[int, str] | None = None,
+    step_range: tuple[float, float] | None = None,
+):
     """Create one combined simulation figure and one averaged figure."""
 
     figures = []
@@ -121,14 +126,16 @@ def plot_thermo(simulations: list[LoadedSimulation], parameter: str):
     fig, ax = plt.subplots(figsize=(8.5, 4.8), facecolor=THERMO_DARK_COLORS["figure"])
     color_cycle = cycle(THERMO_LINE_COLORS)
     for simulation in plottable:
+        label = _thermo_legend_label(simulation, legend_labels)
         ax.plot(
             simulation.thermo_df["Step"],
             simulation.thermo_df[parameter],
             color=next(color_cycle),
             linewidth=2.0,
-            label=f"Simulation {simulation.index}",
+            label=label,
         )
     _style_dark_axes(ax, f"Selected simulations: {parameter}", y_label)
+    _apply_step_range(ax, step_range)
     legend = ax.legend(frameon=False)
     for text in legend.get_texts():
         text.set_color(THERMO_DARK_COLORS["text"])
@@ -147,12 +154,32 @@ def plot_thermo(simulations: list[LoadedSimulation], parameter: str):
         label="Std. dev.",
     )
     _style_dark_axes(ax, f"Average {parameter}", y_label)
+    _apply_step_range(ax, step_range)
     legend = ax.legend(frameon=False)
     for text in legend.get_texts():
         text.set_color(THERMO_DARK_COLORS["text"])
     fig.tight_layout()
     figures.append(fig)
     return figures
+
+
+def _thermo_legend_label(simulation: LoadedSimulation, legend_labels: dict[int, str] | None) -> str:
+    if legend_labels is not None:
+        label = legend_labels.get(simulation.index, "").strip()
+        if label:
+            return label
+    return f"Simulation {simulation.index}"
+
+
+def _apply_step_range(ax, step_range: tuple[float, float] | None) -> None:
+    if step_range is None:
+        return
+    start, end = sorted(step_range)
+    if start == end:
+        padding = max(abs(start) * 0.01, 1.0)
+        start -= padding
+        end += padding
+    ax.set_xlim(start, end)
 
 
 def plot_thermo_per_simulation(simulations: list[LoadedSimulation], parameter: str):
