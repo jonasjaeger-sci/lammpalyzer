@@ -6,9 +6,11 @@ SMILES notation; and provides a Tkinter GUI for plotting and visualization.
 
 ## Quick Start
 
-Clone or enter the repository, then install the package:
+Clone the repository, then enter it and install the package:
 
 ```bash
+git clone git@github.com:jonasjaeger-sci/lammpalyzer.git
+cd lammpalyzer
 pip install -r requirements.txt
 pip install -e .
 ```
