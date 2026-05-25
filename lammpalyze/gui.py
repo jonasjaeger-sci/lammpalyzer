@@ -175,7 +175,11 @@ class LammpalyzeGUI:
 
         ttk.Label(controls, text="Simulations").pack(anchor="w")
         self.thermo_sim_list = tk.Listbox(controls, selectmode="multiple", exportselection=False, height=6)
-        self._thermo_simulations = [simulation for simulation in self.project.simulations if simulation.thermo_df is not None]
+        self._thermo_simulations = [
+            simulation
+            for simulation in self.project.simulations
+            if simulation.thermo_df is not None
+        ]
         for simulation in self.project.simulations:
             if simulation.thermo_df is not None:
                 self.thermo_sim_list.insert("end", f"Simulation {simulation.index}")

@@ -174,7 +174,14 @@ def _write_side_by_side_data(
     product_atom_ids = {int(atom_id) for atom_id in occurrence.product_atom_ids}
     visual_type_map = _visual_type_map(type_to_element)
     reactant_visual_atoms = [
-        _visual_atom(atom, atom.atom_id, left_shift, atom.atom_id in reactant_atom_ids, type_to_element, visual_type_map)
+        _visual_atom(
+            atom,
+            atom.atom_id,
+            left_shift,
+            atom.atom_id in reactant_atom_ids,
+            type_to_element,
+            visual_type_map,
+        )
         for atom in reactant_frame.atoms
     ]
     product_visual_atoms = [

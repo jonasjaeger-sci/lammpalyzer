@@ -19,9 +19,32 @@ dependencies = [
 [project.optional-dependencies]
 smiles = ["rdkit>=2023.9"]
 test = ["pytest>=7.0"]
+lint = ["pylint>=4.0"]
 
 [project.scripts]
 lammpalyze = "lammpalyze.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["lammpalyze*"]
+
+[tool.pylint.main]
+persistent = false
+
+[tool.pylint.format]
+max-line-length = 120
+
+[tool.pylint."messages control"]
+disable = [
+  "attribute-defined-outside-init",
+  "broad-exception-caught",
+  "c-extension-no-member",
+  "duplicate-code",
+  "import-outside-toplevel",
+  "no-member",
+  "too-few-public-methods",
+  "too-many-arguments",
+  "too-many-instance-attributes",
+  "too-many-locals",
+  "too-many-positional-arguments",
+  "too-many-statements",
+]

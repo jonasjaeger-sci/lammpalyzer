@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from lammpalyze.config import parse_input_file
 
 
@@ -32,3 +34,17 @@ def test_parse_input_file_groups_simulations(tmp_path: Path):
     assert [simulation.index for simulation in config.simulations] == [1, 2]
     assert config.simulations[0].bond == tmp_path / "bonds_R1.reax"
     assert config.simulations[1].species == tmp_path / "species_R2.out"
+
+
+def test_parse_input_file_reports_missing_referenced_files(tmp_path: Path):
+    input_file = tmp_path / "lmplyz.inp"
+    input_file.write_text(
+        """
+        element_list = ["C", "H"]
+        SF1 = missing_species.out
+        """,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FileNotFoundError, match="simulation 1 species"):
+        parse_input_file(input_file)

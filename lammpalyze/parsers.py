@@ -492,19 +492,27 @@ def _store_bond_frame(
 
 
 class _FrameUnionFind:
+    """Union-find helper for molecule fragments within one bond frame."""
+
     def __init__(self) -> None:
         self.root: dict[str, str] = {}
 
     def add(self, value: str) -> None:
+        """Register a value as its own set if it is not already known."""
+
         if value not in self.root:
             self.root[value] = value
 
     def find(self, value: str) -> str:
+        """Return the representative root for ``value``."""
+
         if self.root[value] != value:
             self.root[value] = self.find(self.root[value])
         return self.root[value]
 
     def union(self, value1: str, value2: str) -> None:
+        """Join two values into the same set."""
+
         root1 = self.find(value1)
         root2 = self.find(value2)
         if root1 != root2:
