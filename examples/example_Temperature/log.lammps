@@ -1,0 +1,53 @@
+LAMMPS (22 Jul 2025 - Update 3)
+OMP_NUM_THREADS environment is not set. Defaulting to 1 thread.
+  using 1 OpenMP thread(s) per MPI task
+# Simulation Input file for EC_Li_60_40 Electrolyte system
+
+#--------------------------------------
+# Simulation Setup
+#--------------------------------------
+
+# global
+units           real
+dimension	3
+processors	* * *
+boundary	p p p
+
+# read/create box and particles
+atom_style	charge
+read_data	EC_Li_60_40_lammps_charge.data
+Reading data file ...
+  orthogonal box = (-1.486499 -0.121501 0.0475) to (33.513501 34.878499 35.0475)
+  1 by 2 by 3 MPI processor grid
+  reading atoms ...
+  640 atoms
+  read_data CPU = 0.005 seconds
+velocity        all create 330.0 44 dist gaussian
+
+# define terminal outputs during simulation
+thermo		100
+thermo_style	custom step temp pe ke press vol density
+dump		2 all custom 100 md.lammpstrj_R3 id type q xu yu zu
+dump_modify	2 sort id
+
+# force field settings
+pair_style	reaxff lmp_control
+pair_coeff	* * CHOSMoNiLiBFPN.ff C H Li O
+WARNING: Van der Waals parameters for element LI indicate inner wall+shielding, but earlier atoms indicate a different van der Waals method. This may cause division-by-zero errors. Keeping van der Waals setting for earlier atoms. (src/REAXFF/reaxff_ffield.cpp:255)
+WARNING: Changed valency_val to valency_boc for F (src/REAXFF/reaxff_ffield.cpp:300)
+
+# define charge equilibration to consider charged behaviour
+fix		qeq all qeq/reaxff 1 0.0 10.0 1.0e-6 reaxff
+
+# dump a file of bond orders for each timesteps
+fix         	reaxbonds all reaxff/bonds 100 bonds_R3.reax
+
+# nearest neighbor list settings
+neighbor	2 bin
+neigh_modify	every 1 delay 0 check yes
+
+#--------------------------------------
+# Main simulation
+#--------------------------------------
+
+log		main_thermo_R3.log
