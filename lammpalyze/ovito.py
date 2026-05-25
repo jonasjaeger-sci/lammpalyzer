@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shlex
 import shutil
 import subprocess
 import tempfile
@@ -51,6 +50,10 @@ SPHERE_DIAMETER_SCALE = 0.50
 OTHER_SPHERE_DIAMETER = 0.55
 DEFAULT_SPHERE_DIAMETER = 0.65
 SPHERE_DENSITY = 1.0
+
+
+class OvitoNotAvailableError(FileNotFoundError):
+    """Raised when the OVITO executable cannot be found."""
 
 
 @dataclass(frozen=True)
@@ -122,18 +125,9 @@ def launch_ovito_scene(scene: OvitoScene, ovito_executable: str | None = None) -
     if executable is not None:
         return subprocess.Popen([executable, str(scene.data_file)])
 
-    shell = os.environ.get("SHELL") or "/bin/bash"
-    if Path(shell).exists():
-        command = f"ovito {shlex.quote(str(scene.data_file))}"
-        return subprocess.Popen([shell, "-ic", command])
-
-    if os.name == "nt":  # pragma: no cover - Windows fallback.
-        command = f"ovito {shlex.quote(str(scene.data_file))}"
-        return subprocess.Popen(command, shell=True)
-
-    raise FileNotFoundError(
-        "Could not find the OVITO executable. Install OVITO, add it to PATH, "
-        "or set OVITO_BIN to the executable path."
+    raise OvitoNotAvailableError(
+        "OVITO is not installed or could not be found. Install OVITO, add it to PATH, "
+        "or set OVITO_BIN to the executable path to use reaction visualization."
     )
 
 

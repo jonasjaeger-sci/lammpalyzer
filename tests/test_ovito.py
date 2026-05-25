@@ -1,7 +1,10 @@
 from pathlib import Path
 
+import pytest
+
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.ovito import (
+    OvitoNotAvailableError,
     _find_ovito_executable,
     create_reaction_scene,
     launch_ovito_scene,
@@ -121,3 +124,21 @@ def test_launch_ovito_scene_opens_dump_without_script_flag(monkeypatch, tmp_path
     )
 
     assert calls == [["/usr/bin/ovito", str(data_file)]]
+
+
+def test_launch_ovito_scene_warns_when_executable_is_missing(monkeypatch, tmp_path: Path):
+    def fail_popen(_command):
+        raise AssertionError("OVITO should not be launched when no executable is found.")
+
+    data_file = tmp_path / "scene.data"
+    info_file = tmp_path / "scene.txt"
+    data_file.write_text("", encoding="utf-8")
+    info_file.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr("lammpalyze.ovito._find_ovito_executable", lambda: None)
+    monkeypatch.setattr("subprocess.Popen", fail_popen)
+
+    with pytest.raises(OvitoNotAvailableError, match="OVITO is not installed"):
+        launch_ovito_scene(
+            scene=type("Scene", (), {"data_file": data_file, "info_file": info_file})(),
+        )

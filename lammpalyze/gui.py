@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from lammpalyze.analysis import LammpalyzeProject, LoadedSimulation
-from lammpalyze.ovito import create_reaction_scene, launch_ovito_scene, normalize_reaction_path
+from lammpalyze.ovito import OvitoNotAvailableError, create_reaction_scene, launch_ovito_scene, normalize_reaction_path
 from lammpalyze.parsers import list_lammpstrj_timesteps
 from lammpalyze.plotting import plot_rdf, plot_species, plot_thermo
 from lammpalyze.rdf import compute_rdf
@@ -539,6 +539,9 @@ class LammpalyzeGUI:
                     f"Scene files: {scene.directory}"
                 )
             )
+        except OvitoNotAvailableError as exc:  # pragma: no cover - GUI feedback.
+            self.reaction_status.configure(text=str(exc))
+            messagebox.showwarning("OVITO not available", str(exc))
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("OVITO visualization failed", str(exc))
 
