@@ -88,9 +88,9 @@ def count_reaction_paths(
 ) -> list[ReactionPath]:
     """Count all reaction paths between consecutive timesteps.
 
-    This refactors the historical ``execute.py`` logic: atom ids are mapped to
-    molecule indexes at ``t1`` and ``t2``, connected reaction clusters are found,
-    unchanged molecule sets are ignored, and identical paths are counted.
+    Atom ids are mapped to molecule indexes at ``t1`` and ``t2``, connected
+    reaction clusters are found, unchanged molecule sets are ignored, and
+    identical paths are counted.
     """
 
     timesteps = sorted(smiles.keys())

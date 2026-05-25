@@ -29,7 +29,8 @@ Thumbs.db
 .codex/
 
 # Local run outputs
-paths.out
+/paths.out
+examples/**/paths.out
 reaction_paths*.tsv
 *.png
 *.pdf
@@ -44,7 +45,8 @@ species*.out
 species*_main.out
 main_thermo*.log
 thermo*.log
+log.lammps
 
 # Local input files that often contain machine-specific paths
-lmplyz.inp
+/lmplyz.inp
 *.local.inp

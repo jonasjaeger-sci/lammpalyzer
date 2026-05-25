@@ -163,6 +163,10 @@ lammpalyze/
   gui.py          Tkinter GUI
   smiles.py       SMILES utilities and molecule rendering
   ovito.py        OVITO scene generation
+examples/
+  example_NVT_vs_NPT/
+  example_Temperature/
+  example_thermal_dampening/
 tests/
 requirements.txt
 pyproject.toml
