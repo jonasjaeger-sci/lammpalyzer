@@ -7,6 +7,7 @@ from itertools import cycle
 import matplotlib.pyplot as plt
 
 from lammpalyze.analysis import LoadedSimulation, aggregate_thermo
+from lammpalyze.rdf import RDFResult
 
 SPECIES_DARK_COLORS = [
     "#4cc9f0",
@@ -105,11 +106,37 @@ def plot_species(simulations: list[LoadedSimulation], species: list[str]):
     return fig
 
 
+def plot_rdf(results: list[RDFResult], element_a: str, element_b: str):
+    """Plot one time-averaged RDF curve per selected simulation."""
+
+    if not results:
+        raise ValueError("No RDF data to plot.")
+
+    fig, ax = plt.subplots(figsize=(8.5, 4.8), facecolor=THERMO_DARK_COLORS["figure"])
+    color_cycle = cycle(THERMO_LINE_COLORS)
+    for result in results:
+        ax.plot(
+            result.r,
+            result.g_r,
+            color=next(color_cycle),
+            linewidth=2.0,
+            label=f"Simulation {result.simulation_index}",
+        )
+
+    _style_dark_axes(ax, f"RDF {element_a}-{element_b}", "g(r)", x_label="r [A]")
+    legend = ax.legend(frameon=False)
+    for text in legend.get_texts():
+        text.set_color(THERMO_DARK_COLORS["text"])
+    fig.tight_layout()
+    return fig
+
+
 def plot_thermo(
     simulations: list[LoadedSimulation],
     parameter: str,
     legend_labels: dict[int, str] | None = None,
     step_range: tuple[float, float] | None = None,
+    y_range: tuple[float, float] | None = None,
 ):
     """Create one combined simulation figure and one averaged figure."""
 
@@ -136,6 +163,7 @@ def plot_thermo(
         )
     _style_dark_axes(ax, f"Selected simulations: {parameter}", y_label)
     _apply_step_range(ax, step_range)
+    _apply_y_range(ax, y_range)
     legend = ax.legend(frameon=False)
     for text in legend.get_texts():
         text.set_color(THERMO_DARK_COLORS["text"])
@@ -155,6 +183,7 @@ def plot_thermo(
     )
     _style_dark_axes(ax, f"Average {parameter}", y_label)
     _apply_step_range(ax, step_range)
+    _apply_y_range(ax, y_range)
     legend = ax.legend(frameon=False)
     for text in legend.get_texts():
         text.set_color(THERMO_DARK_COLORS["text"])
@@ -180,6 +209,17 @@ def _apply_step_range(ax, step_range: tuple[float, float] | None) -> None:
         start -= padding
         end += padding
     ax.set_xlim(start, end)
+
+
+def _apply_y_range(ax, y_range: tuple[float, float] | None) -> None:
+    if y_range is None:
+        return
+    start, end = sorted(y_range)
+    if start == end:
+        padding = max(abs(start) * 0.01, 1.0)
+        start -= padding
+        end += padding
+    ax.set_ylim(start, end)
 
 
 def plot_thermo_per_simulation(simulations: list[LoadedSimulation], parameter: str):
@@ -233,9 +273,9 @@ def thermo_axis_label(parameter: str) -> str:
     return f"{parameter} [{unit}]"
 
 
-def _style_dark_axes(ax, title: str, y_label: str) -> None:
+def _style_dark_axes(ax, title: str, y_label: str, x_label: str = "Step") -> None:
     ax.set_facecolor(THERMO_DARK_COLORS["axes"])
-    ax.set_xlabel("Step", color=THERMO_DARK_COLORS["text"], fontsize=16, fontweight="bold")
+    ax.set_xlabel(x_label, color=THERMO_DARK_COLORS["text"], fontsize=16, fontweight="bold")
     ax.set_ylabel(y_label, color=THERMO_DARK_COLORS["text"], fontsize=16, fontweight="bold")
     ax.set_title(title, color=THERMO_DARK_COLORS["title"], pad=12)
     ax.tick_params(axis="both", colors=THERMO_DARK_COLORS["tick"])

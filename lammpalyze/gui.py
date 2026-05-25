@@ -8,13 +8,39 @@ from tkinter import messagebox, ttk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from lammpalyze.analysis import LammpalyzeProject
+from lammpalyze.analysis import LammpalyzeProject, LoadedSimulation
 from lammpalyze.ovito import create_reaction_scene, launch_ovito_scene, normalize_reaction_path
-from lammpalyze.plotting import plot_species, plot_thermo
+from lammpalyze.parsers import list_lammpstrj_timesteps
+from lammpalyze.plotting import plot_rdf, plot_species, plot_thermo
+from lammpalyze.rdf import compute_rdf
+from lammpalyze.reactions import ReactionPath, count_reaction_paths
 from lammpalyze.smiles import formulas_for_simulation, molecule_photo_image, smiles_for_formula
 
 
 THERMO_DEFAULTS = ["Temp", "PotEng", "KinEng", "Press", "Volume", "Density"]
+
+
+def reaction_path_table_data(
+    simulations: list[LoadedSimulation],
+) -> tuple[list[int], list[ReactionPath], dict[str, dict[int, int]]]:
+    """Return simulation indexes, total paths, and per-simulation counts."""
+
+    simulation_indices = []
+    counts_by_reaction: dict[str, dict[int, int]] = {}
+    totals: dict[str, int] = {}
+    for simulation in simulations:
+        if simulation.smiles is None or simulation.smiles_id is None:
+            continue
+        simulation_indices.append(simulation.index)
+        for path in count_reaction_paths(simulation.smiles, simulation.smiles_id):
+            counts_by_reaction.setdefault(path.reaction, {})[simulation.index] = path.count
+            totals[path.reaction] = totals.get(path.reaction, 0) + path.count
+
+    paths = [
+        ReactionPath(reaction, count)
+        for reaction, count in sorted(totals.items(), key=lambda item: item[1], reverse=True)
+    ]
+    return simulation_indices, paths, counts_by_reaction
 
 
 class LammpalyzeGUI:
@@ -22,12 +48,18 @@ class LammpalyzeGUI:
 
     def __init__(self, project: LammpalyzeProject) -> None:
         self.project = project
-        self._reaction_paths = project.reaction_paths()
+        (
+            self._reaction_simulation_indices,
+            self._reaction_paths,
+            self._reaction_counts_by_simulation,
+        ) = reaction_path_table_data(project.simulations)
         self.root = tk.Tk()
         self.root.title("lammpalyze")
         self.root.geometry("1100x760")
         self._species_canvas: FigureCanvasTkAgg | None = None
         self._thermo_canvases: list[FigureCanvasTkAgg] = []
+        self._rdf_canvas: FigureCanvasTkAgg | None = None
+        self._rdf_timesteps_by_simulation: dict[int, list[int]] = {}
         self._molecule_photo = None
         self._closed = False
         self._build()
@@ -50,17 +82,20 @@ class LammpalyzeGUI:
 
         species_tab = ttk.Frame(tabs)
         thermo_tab = ttk.Frame(tabs)
+        rdf_tab = ttk.Frame(tabs)
         smiles_tab = ttk.Frame(tabs)
         reaction_table_tab = ttk.Frame(tabs)
         reaction_tab = ttk.Frame(tabs)
         tabs.add(species_tab, text="Species analysis")
         tabs.add(thermo_tab, text="Thermodynamic data")
+        tabs.add(rdf_tab, text="Radial distribution")
         tabs.add(smiles_tab, text="Molecule visualization")
         tabs.add(reaction_table_tab, text="Reaction paths")
         tabs.add(reaction_tab, text="Reaction visualization")
 
         self._build_species_tab(species_tab)
         self._build_thermo_tab(thermo_tab)
+        self._build_rdf_tab(rdf_tab)
         self._build_smiles_tab(smiles_tab)
         self._build_reaction_table_tab(reaction_table_tab)
         self._build_reaction_tab(reaction_tab)
@@ -148,7 +183,7 @@ class LammpalyzeGUI:
             self.thermo_sim_list.select_set(0, "end")
         self.thermo_sim_list.bind(
             "<<ListboxSelect>>",
-            lambda _event: self._update_thermo_step_controls(preserve=True),
+            lambda _event: self._update_thermo_range_controls(preserve=True),
         )
         self.thermo_sim_list.pack(fill="x", pady=(0, 12))
 
@@ -174,9 +209,17 @@ class LammpalyzeGUI:
         values = [value for value in THERMO_DEFAULTS if value in available] or available
         self.thermo_parameter = tk.StringVar(value=values[0] if values else "")
         ttk.Label(controls, text="Parameter").pack(anchor="w")
-        ttk.Combobox(controls, textvariable=self.thermo_parameter, values=values, state="readonly").pack(
-            fill="x", pady=(0, 12)
+        self.thermo_parameter_combo = ttk.Combobox(
+            controls,
+            textvariable=self.thermo_parameter,
+            values=values,
+            state="readonly",
         )
+        self.thermo_parameter_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda _event: self._update_thermo_range_controls(preserve=False),
+        )
+        self.thermo_parameter_combo.pack(fill="x", pady=(0, 12))
         ttk.Label(controls, text="Step range").pack(anchor="w")
         self._thermo_step_bounds: tuple[float, float] | None = None
         self._updating_thermo_step_controls = False
@@ -203,8 +246,77 @@ class LammpalyzeGUI:
             text="Full step range",
             command=lambda: self._update_thermo_step_controls(preserve=False),
         ).pack(fill="x", pady=(0, 12))
+
+        ttk.Label(controls, text="Y-axis range").pack(anchor="w")
+        self.thermo_y_min = tk.StringVar()
+        self.thermo_y_max = tk.StringVar()
+        ttk.Label(controls, text="Minimum").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.thermo_y_min).pack(fill="x", pady=(0, 4))
+        ttk.Label(controls, text="Maximum").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.thermo_y_max).pack(fill="x", pady=(0, 8))
+        ttk.Button(
+            controls,
+            text="Full y range",
+            command=lambda: self._update_thermo_y_controls(preserve=False),
+        ).pack(fill="x", pady=(0, 12))
         self._update_thermo_step_controls(preserve=False)
+        self._update_thermo_y_controls(preserve=False)
         ttk.Button(controls, text="Plot", command=self._plot_thermo).pack(fill="x")
+
+    def _build_rdf_tab(self, parent: ttk.Frame) -> None:
+        controls = ttk.Frame(parent)
+        controls.pack(side="left", fill="y", padx=8, pady=8)
+        plot_area = ttk.Frame(parent)
+        plot_area.pack(side="right", fill="both", expand=True, padx=8, pady=8)
+        self._rdf_plot_area = plot_area
+
+        ttk.Label(controls, text="Simulations").pack(anchor="w")
+        self.rdf_sim_list = tk.Listbox(controls, selectmode="multiple", exportselection=False, height=6)
+        self._rdf_simulations = [
+            simulation
+            for simulation in self.project.simulations
+            if simulation.trajectory_path is not None and simulation.type_to_element is not None
+        ]
+        for simulation in self._rdf_simulations:
+            self.rdf_sim_list.insert("end", f"Simulation {simulation.index}")
+        if self.rdf_sim_list.size():
+            self.rdf_sim_list.select_set(0, "end")
+        self.rdf_sim_list.bind("<<ListboxSelect>>", lambda _event: self._set_rdf_last_timesteps())
+        self.rdf_sim_list.pack(fill="x", pady=(0, 12))
+
+        elements = self.project.config.element_list
+        default_a = "Li" if "Li" in elements else (elements[0] if elements else "")
+        default_b = "O" if "O" in elements else (elements[1] if len(elements) > 1 else default_a)
+        self.rdf_element_a = tk.StringVar(value=default_a)
+        self.rdf_element_b = tk.StringVar(value=default_b)
+
+        ttk.Label(controls, text="Element A").pack(anchor="w")
+        ttk.Combobox(controls, textvariable=self.rdf_element_a, values=elements, state="readonly").pack(
+            fill="x", pady=(0, 12)
+        )
+        ttk.Label(controls, text="Element B").pack(anchor="w")
+        ttk.Combobox(controls, textvariable=self.rdf_element_b, values=elements, state="readonly").pack(
+            fill="x", pady=(0, 12)
+        )
+
+        self.rdf_timestep_start = tk.StringVar()
+        self.rdf_timestep_end = tk.StringVar()
+        ttk.Label(controls, text="Timestep start").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.rdf_timestep_start).pack(fill="x", pady=(0, 8))
+        ttk.Label(controls, text="Timestep end").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.rdf_timestep_end).pack(fill="x", pady=(0, 8))
+        ttk.Button(controls, text="Last 5 timesteps", command=self._set_rdf_last_timesteps).pack(
+            fill="x", pady=(0, 12)
+        )
+
+        self.rdf_bin_width = tk.StringVar(value="0.1")
+        ttk.Label(controls, text="Bin width").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.rdf_bin_width).pack(fill="x", pady=(0, 12))
+        ttk.Button(controls, text="Plot", command=self._plot_rdf).pack(fill="x")
+
+        self.rdf_status = ttk.Label(plot_area, text="", wraplength=620, justify="left")
+        self.rdf_status.pack(anchor="nw", padx=8, pady=8)
+        self._set_rdf_last_timesteps()
 
     def _build_smiles_tab(self, parent: ttk.Frame) -> None:
         controls = ttk.Frame(parent)
@@ -246,15 +358,19 @@ class LammpalyzeGUI:
         table_frame = ttk.Frame(parent)
         table_frame.pack(fill="both", expand=True, padx=8, pady=8)
 
-        columns = ("count", "reaction")
+        simulation_columns = [f"simulation_{index}" for index in self._reaction_simulation_indices]
+        columns = ("count", *simulation_columns, "reaction")
         self.reaction_table = ttk.Treeview(
             table_frame,
             columns=columns,
             show="headings",
         )
-        self.reaction_table.heading("count", text="Count")
+        self.reaction_table.heading("count", text="Total")
         self.reaction_table.heading("reaction", text="Reaction path (SMILES)")
         self.reaction_table.column("count", width=90, minwidth=70, anchor="e", stretch=False)
+        for column, index in zip(simulation_columns, self._reaction_simulation_indices, strict=False):
+            self.reaction_table.heading(column, text=f"Simulation {index}")
+            self.reaction_table.column(column, width=105, minwidth=90, anchor="e", stretch=False)
         self.reaction_table.column("reaction", width=980, minwidth=360, anchor="w", stretch=True)
 
         y_scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.reaction_table.yview)
@@ -268,7 +384,16 @@ class LammpalyzeGUI:
         table_frame.columnconfigure(0, weight=1)
 
         for path in self._reaction_paths:
-            self.reaction_table.insert("", "end", values=(path.count, path.reaction))
+            per_simulation_counts = self._reaction_counts_by_simulation.get(path.reaction, {})
+            values = (
+                path.count,
+                *[
+                    per_simulation_counts.get(index, 0)
+                    for index in self._reaction_simulation_indices
+                ],
+                path.reaction,
+            )
+            self.reaction_table.insert("", "end", values=values)
         self.reaction_table.bind("<<TreeviewSelect>>", self._sync_reaction_path_copy_field)
         self.reaction_table.bind("<Control-c>", self._copy_selected_reaction_path)
         self.reaction_table.bind("<Control-C>", self._copy_selected_reaction_path)
@@ -348,6 +473,7 @@ class LammpalyzeGUI:
                 parameter,
                 legend_labels=legend_labels,
                 step_range=self._thermo_step_range(),
+                y_range=self._thermo_y_range(),
             )
             for figure in figures:
                 canvas = FigureCanvasTkAgg(figure, master=self._thermo_plot_area)
@@ -357,6 +483,32 @@ class LammpalyzeGUI:
             self._thermo_scroll_canvas.yview_moveto(0)
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("Thermo plotting failed", str(exc))
+
+    def _plot_rdf(self) -> None:
+        try:
+            simulations = self._selected_rdf_simulations()
+            if not simulations:
+                raise ValueError("Select at least one simulation.")
+            element_a = self.rdf_element_a.get()
+            element_b = self.rdf_element_b.get()
+            if not element_a or not element_b:
+                raise ValueError("Select two elements.")
+            start = int(self.rdf_timestep_start.get())
+            end = int(self.rdf_timestep_end.get())
+            bin_width = float(self.rdf_bin_width.get())
+
+            results = compute_rdf(simulations, element_a, element_b, (start, end), bin_width)
+            figure = plot_rdf(results, element_a, element_b)
+            self._replace_canvas("_rdf_canvas", self._rdf_plot_area, figure)
+            used_timesteps = sorted({timestep for result in results for timestep in result.timesteps})
+            self.rdf_status.configure(
+                text=(
+                    f"Used {len(used_timesteps)} timestep(s): "
+                    f"{used_timesteps[0]} to {used_timesteps[-1]}"
+                )
+            )
+        except Exception as exc:  # pragma: no cover - GUI feedback.
+            messagebox.showerror("RDF plotting failed", str(exc))
 
     def _generate_molecule(self) -> None:
         try:
@@ -393,13 +545,55 @@ class LammpalyzeGUI:
     def _selected_thermo_simulations(self):
         return [self._thermo_simulations[index] for index in self.thermo_sim_list.curselection()]
 
+    def _selected_rdf_simulations(self):
+        return [self._rdf_simulations[index] for index in self.rdf_sim_list.curselection()]
+
     def _thermo_legend_labels(self) -> dict[int, str]:
         return {index: label_var.get() for index, label_var in self.thermo_label_vars.items()}
+
+    def _set_rdf_last_timesteps(self) -> None:
+        timesteps = sorted(
+            {
+                timestep
+                for simulation in self._selected_rdf_simulations()
+                for timestep in self._rdf_timesteps(simulation)
+            }
+        )
+        if not timesteps:
+            self.rdf_timestep_start.set("")
+            self.rdf_timestep_end.set("")
+            return
+        selected = timesteps[-5:]
+        self.rdf_timestep_start.set(str(selected[0]))
+        self.rdf_timestep_end.set(str(selected[-1]))
+
+    def _rdf_timesteps(self, simulation: LoadedSimulation) -> list[int]:
+        if simulation.index not in self._rdf_timesteps_by_simulation:
+            if simulation.trajectory_path is None:
+                self._rdf_timesteps_by_simulation[simulation.index] = []
+            else:
+                self._rdf_timesteps_by_simulation[simulation.index] = list_lammpstrj_timesteps(
+                    simulation.trajectory_path
+                )
+        return self._rdf_timesteps_by_simulation[simulation.index]
 
     def _thermo_step_range(self) -> tuple[float, float] | None:
         if self._thermo_step_bounds is None:
             return None
         return tuple(sorted((self.thermo_step_min.get(), self.thermo_step_max.get())))
+
+    def _thermo_y_range(self) -> tuple[float, float] | None:
+        minimum = self.thermo_y_min.get().strip()
+        maximum = self.thermo_y_max.get().strip()
+        if not minimum and not maximum:
+            return None
+        if not minimum or not maximum:
+            raise ValueError("Enter both y-axis minimum and maximum, or reset to the full y range.")
+        return tuple(sorted((float(minimum), float(maximum))))
+
+    def _update_thermo_range_controls(self, preserve: bool) -> None:
+        self._update_thermo_step_controls(preserve=preserve)
+        self._update_thermo_y_controls(preserve=preserve)
 
     def _update_thermo_step_controls(self, preserve: bool) -> None:
         bounds = self._thermo_step_bounds_for_simulations(self._selected_thermo_simulations())
@@ -469,6 +663,51 @@ class LammpalyzeGUI:
             f"{self._format_step_value(lower)} to {self._format_step_value(upper)}"
         )
 
+    def _update_thermo_y_controls(self, preserve: bool) -> None:
+        bounds = self._thermo_y_bounds_for_simulations(
+            self._selected_thermo_simulations(),
+            self.thermo_parameter.get(),
+        )
+        if bounds is None:
+            bounds = self._thermo_y_bounds_for_simulations(self._thermo_simulations, self.thermo_parameter.get())
+        if bounds is None:
+            if not preserve:
+                self.thermo_y_min.set("")
+                self.thermo_y_max.set("")
+            return
+
+        if preserve and self.thermo_y_min.get().strip() and self.thermo_y_max.get().strip():
+            try:
+                current_lower = float(self.thermo_y_min.get())
+                current_upper = float(self.thermo_y_max.get())
+            except ValueError:
+                current_lower, current_upper = bounds
+            lower, upper = sorted((current_lower, current_upper))
+        else:
+            lower, upper = bounds
+
+        self.thermo_y_min.set(self._format_step_value(lower))
+        self.thermo_y_max.set(self._format_step_value(upper))
+
+    def _thermo_y_bounds_for_simulations(
+        self,
+        simulations,
+        parameter: str,
+    ) -> tuple[float, float] | None:
+        bounds = []
+        if not parameter:
+            return None
+        for simulation in simulations:
+            if simulation.thermo_df is None or parameter not in simulation.thermo_df.columns:
+                continue
+            values = simulation.thermo_df[parameter].dropna()
+            if values.empty:
+                continue
+            bounds.append((float(values.min()), float(values.max())))
+        if not bounds:
+            return None
+        return min(bound[0] for bound in bounds), max(bound[1] for bound in bounds)
+
     @staticmethod
     def _format_step_value(value: float) -> str:
         if float(value).is_integer():
@@ -480,8 +719,7 @@ class LammpalyzeGUI:
         item_id = selected[0] if selected else self.reaction_table.focus()
         if not item_id:
             return ""
-        values = self.reaction_table.item(item_id, "values")
-        return values[1] if len(values) > 1 else ""
+        return self.reaction_table.set(item_id, "reaction")
 
     def _sync_reaction_path_copy_field(self, _event=None) -> None:
         self.reaction_path_copy_value.set(self._selected_reaction_path_from_table())
@@ -524,6 +762,10 @@ class LammpalyzeGUI:
         if self._species_canvas is not None:
             self._destroy_canvas(self._species_canvas)
             self._species_canvas = None
+
+        if self._rdf_canvas is not None:
+            self._destroy_canvas(self._rdf_canvas)
+            self._rdf_canvas = None
 
         for canvas in self._thermo_canvases:
             self._destroy_canvas(canvas)
