@@ -18,6 +18,21 @@ from lammpalyze.smiles import formulas_for_simulation, molecule_photo_image, smi
 
 
 THERMO_DEFAULTS = ["Temp", "PotEng", "KinEng", "Press", "Volume", "Density"]
+MOLECULE_IMAGE_PADDING = 24
+MOLECULE_IMAGE_FALLBACK_SIZE = (720, 520)
+MOLECULE_IMAGE_MAX_SIZE = (1800, 1400)
+MOLECULE_RESIZE_DEBOUNCE_MS = 150
+
+
+def molecule_render_size(container_width: int, container_height: int) -> tuple[int, int]:
+    """Return a molecule image size that follows the available GUI area."""
+
+    if container_width <= MOLECULE_IMAGE_PADDING or container_height <= MOLECULE_IMAGE_PADDING:
+        return MOLECULE_IMAGE_FALLBACK_SIZE
+
+    image_width = min(container_width - MOLECULE_IMAGE_PADDING, MOLECULE_IMAGE_MAX_SIZE[0])
+    image_height = min(container_height - MOLECULE_IMAGE_PADDING, MOLECULE_IMAGE_MAX_SIZE[1])
+    return max(1, image_width), max(1, image_height)
 
 
 def reaction_path_table_data(
@@ -61,6 +76,8 @@ class LammpalyzeGUI:
         self._rdf_canvas: FigureCanvasTkAgg | None = None
         self._rdf_timesteps_by_simulation: dict[int, list[int]] = {}
         self._molecule_photo = None
+        self._molecule_smiles: str | None = None
+        self._molecule_resize_job: str | None = None
         self._closed = False
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
@@ -354,8 +371,9 @@ class LammpalyzeGUI:
 
         ttk.Button(controls, text="Generate", command=self._generate_molecule).pack(fill="x")
 
-        self.molecule_label = ttk.Label(output)
+        self.molecule_label = ttk.Label(output, anchor="center")
         self.molecule_label.pack(fill="both", expand=True)
+        output.bind("<Configure>", self._schedule_molecule_resize)
         self._refresh_formula_options()
 
     def _build_reaction_table_tab(self, parent: ttk.Frame) -> None:
@@ -519,10 +537,29 @@ class LammpalyzeGUI:
             smiles = self.smiles_value.get()
             if not smiles:
                 raise ValueError("Select a SMILES string.")
-            self._molecule_photo = molecule_photo_image(smiles)
-            self.molecule_label.configure(image=self._molecule_photo)
+            self._molecule_smiles = smiles
+            self._render_molecule_image()
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("SMILES visualization failed", str(exc))
+
+    def _schedule_molecule_resize(self, _event=None) -> None:
+        if not self._molecule_smiles:
+            return
+        if self._molecule_resize_job is not None:
+            self.root.after_cancel(self._molecule_resize_job)
+        self._molecule_resize_job = self.root.after(MOLECULE_RESIZE_DEBOUNCE_MS, self._render_molecule_image)
+
+    def _render_molecule_image(self) -> None:
+        self._molecule_resize_job = None
+        if not self._molecule_smiles:
+            return
+
+        image_size = molecule_render_size(
+            self.molecule_label.winfo_width(),
+            self.molecule_label.winfo_height(),
+        )
+        self._molecule_photo = molecule_photo_image(self._molecule_smiles, size=image_size)
+        self.molecule_label.configure(image=self._molecule_photo)
 
     def _open_reaction_in_ovito(self) -> None:
         try:
@@ -778,6 +815,10 @@ class LammpalyzeGUI:
             self._destroy_canvas(canvas)
         self._thermo_canvases = []
 
+        if self._molecule_resize_job is not None:
+            self.root.after_cancel(self._molecule_resize_job)
+            self._molecule_resize_job = None
+        self._molecule_smiles = None
         self._molecule_photo = None
         plt.close("all")
 
