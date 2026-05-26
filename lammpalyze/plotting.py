@@ -193,6 +193,8 @@ def plot_thermo(
 
 
 def _thermo_legend_label(simulation: LoadedSimulation, legend_labels: dict[int, str] | None) -> str:
+    """Return the user label for a thermo series or a simulation default."""
+
     if legend_labels is not None:
         label = legend_labels.get(simulation.index, "").strip()
         if label:
@@ -201,6 +203,8 @@ def _thermo_legend_label(simulation: LoadedSimulation, legend_labels: dict[int, 
 
 
 def _apply_step_range(ax, step_range: tuple[float, float] | None) -> None:
+    """Apply an optional x-axis step range to a plot."""
+
     if step_range is None:
         return
     start, end = sorted(step_range)
@@ -212,6 +216,8 @@ def _apply_step_range(ax, step_range: tuple[float, float] | None) -> None:
 
 
 def _apply_y_range(ax, y_range: tuple[float, float] | None) -> None:
+    """Apply an optional y-axis range to a plot."""
+
     if y_range is None:
         return
     start, end = sorted(y_range)
@@ -274,6 +280,8 @@ def thermo_axis_label(parameter: str) -> str:
 
 
 def _style_dark_axes(ax, title: str, y_label: str, x_label: str = "Step") -> None:
+    """Apply the shared dark Matplotlib axis style."""
+
     ax.set_facecolor(THERMO_DARK_COLORS["axes"])
     ax.set_xlabel(x_label, color=THERMO_DARK_COLORS["text"], fontsize=16, fontweight="bold")
     ax.set_ylabel(y_label, color=THERMO_DARK_COLORS["text"], fontsize=16, fontweight="bold")

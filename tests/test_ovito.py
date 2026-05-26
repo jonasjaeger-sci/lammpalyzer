@@ -1,3 +1,5 @@
+"""Tests for OVITO scene generation and launching."""
+
 from pathlib import Path
 
 import pytest
@@ -14,12 +16,16 @@ from lammpalyze.reactions import ReactionOccurrence
 
 
 def test_normalize_reaction_path_accepts_paths_out_row():
+    """Strip the count column from a copied paths.out row."""
+
     row = "['AB'] -> ['A', 'B']\t3"
 
     assert normalize_reaction_path(row) == "['AB'] -> ['A', 'B']"
 
 
 def test_create_reaction_scene_writes_ball_and_stick_data_file(tmp_path: Path):
+    """Write OVITO-readable atoms, bonds, masses, and scene metadata."""
+
     trajectory = tmp_path / "traj.lammpstrj"
     trajectory.write_text(
         """ITEM: TIMESTEP
@@ -96,18 +102,24 @@ ITEM: ATOMS id type q xu yu zu
 
 
 def test_find_ovito_executable_accepts_mixed_case_env(monkeypatch):
+    """Find OVITO through the mixed-case environment variable."""
+
     monkeypatch.setenv("OVITO_bin", "/custom/ovito")
 
     assert _find_ovito_executable() == "/custom/ovito"
 
 
 def test_launch_ovito_scene_opens_dump_without_script_flag(monkeypatch, tmp_path: Path):
+    """Launch OVITO directly with the generated data file."""
+
     calls = []
 
     class DummyProcess:
-        pass
+        """Minimal process stand-in returned by the fake Popen."""
 
     def fake_popen(command):
+        """Record the launch command and return a dummy process."""
+
         calls.append(command)
         return DummyProcess()
 
@@ -127,7 +139,11 @@ def test_launch_ovito_scene_opens_dump_without_script_flag(monkeypatch, tmp_path
 
 
 def test_launch_ovito_scene_warns_when_executable_is_missing(monkeypatch, tmp_path: Path):
+    """Raise a user-facing error when OVITO cannot be found."""
+
     def fail_popen(_command):
+        """Fail if launch code tries to start OVITO without an executable."""
+
         raise AssertionError("OVITO should not be launched when no executable is found.")
 
     data_file = tmp_path / "scene.data"

@@ -74,6 +74,8 @@ def smiles_for_formula(
 
 
 def _require_rdkit() -> None:
+    """Raise an informative error when RDKit rendering support is missing."""
+
     if Chem is None or Draw is None:
         raise ImportError(
             "RDKit is required for SMILES visualization. "

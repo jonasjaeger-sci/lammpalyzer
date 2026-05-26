@@ -1,9 +1,13 @@
+"""Tests for LAMMPS and ReaxFF parsers."""
+
 from pathlib import Path
 
 from lammpalyze.parsers import eval_species, eval_thermo, iter_lammpstrj_frames
 
 
 def test_eval_species_handles_changing_headers(tmp_path: Path):
+    """Merge species columns across changing species-file headers."""
+
     species_file = tmp_path / "species.out"
     species_file.write_text(
         """
@@ -24,6 +28,8 @@ def test_eval_species_handles_changing_headers(tmp_path: Path):
 
 
 def test_eval_thermo_extracts_table(tmp_path: Path):
+    """Extract the thermo table from a LAMMPS log file."""
+
     thermo_file = tmp_path / "thermo.log"
     thermo_file.write_text(
         """
@@ -43,6 +49,8 @@ def test_eval_thermo_extracts_table(tmp_path: Path):
 
 
 def test_iter_lammpstrj_frames_filters_inclusive_timestep_range(tmp_path: Path):
+    """Yield only trajectory frames inside an inclusive timestep range."""
+
     trajectory = tmp_path / "traj.lammpstrj"
     trajectory.write_text(
         """ITEM: TIMESTEP

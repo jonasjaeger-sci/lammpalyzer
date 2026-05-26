@@ -132,6 +132,8 @@ def launch_ovito_scene(scene: OvitoScene, ovito_executable: str | None = None) -
 
 
 def _find_ovito_executable() -> str | None:
+    """Return an OVITO executable path from environment, PATH, or defaults."""
+
     for env_name in ("OVITO_BIN", "OVITO_bin", "ovito_bin"):
         executable = os.environ.get(env_name)
         if executable:
@@ -158,6 +160,8 @@ def _write_side_by_side_data(
     occurrence: ReactionOccurrence,
     type_to_element: dict[int, str],
 ) -> None:
+    """Write reactant and product frames as one OVITO-readable data file."""
+
     max_atom_id = max(atom.atom_id for atom in reactant_frame.atoms + product_frame.atoms)
     x_length = reactant_frame.bounds[0, 1] - reactant_frame.bounds[0, 0]
     x_gap = x_length * 0.35
@@ -222,6 +226,8 @@ def _write_side_by_side_data(
 
 
 def _visual_type_map(type_to_element: dict[int, str]) -> dict[int, str]:
+    """Map visual atom types to element labels, reserving type one for context."""
+
     elements = sorted(set(type_to_element.values()))
     return {1: "X"} | {index + 2: element for index, element in enumerate(elements)}
 
@@ -234,6 +240,8 @@ def _visual_atom(
     type_to_element: dict[int, str],
     visual_type_map: dict[int, str],
 ) -> tuple[int, int, float, float, float, float]:
+    """Return one shifted atom row for the OVITO sphere data file."""
+
     element = type_to_element.get(atom.atom_type)
     visual_type = 1
     diameter = OTHER_SPHERE_DIAMETER
@@ -244,6 +252,8 @@ def _visual_atom(
 
 
 def _visual_bonds(bonds: list[ReaxBond], atom_id_offset: int, start_bond_id: int) -> list[tuple[int, int, int]]:
+    """Return OVITO bond rows with adjusted atom ids and sequential bond ids."""
+
     return [
         (bond_index, bond.atom_i + atom_id_offset, bond.atom_j + atom_id_offset)
         for bond_index, bond in enumerate(bonds, start=start_bond_id)
@@ -254,6 +264,8 @@ def _bounds_from_visual_atoms(
     visual_atoms: list[tuple[int, int, float, float, float, float]],
     padding: float = 4.0,
 ) -> tuple[list[float], list[float], list[float]]:
+    """Return padded x, y, and z bounds around visual atom coordinates."""
+
     x_values = [atom[3] for atom in visual_atoms]
     y_values = [atom[4] for atom in visual_atoms]
     z_values = [atom[5] for atom in visual_atoms]
@@ -265,6 +277,8 @@ def _bounds_from_visual_atoms(
 
 
 def _element_diameter(element: str) -> float:
+    """Return the rendered sphere diameter for a chemical element."""
+
     radius = CPK_RADII.get(element)
     if radius is None:
         return DEFAULT_SPHERE_DIAMETER
@@ -272,6 +286,8 @@ def _element_diameter(element: str) -> float:
 
 
 def _write_scene_info(info_file: Path, occurrence: ReactionOccurrence) -> None:
+    """Write a companion text summary for a generated OVITO scene."""
+
     info_file.write_text(
         "\n".join(
             [

@@ -36,6 +36,8 @@ class UnionFindReax:
     """Union-find helper for grouping reactants and products across timesteps."""
 
     def __init__(self) -> None:
+        """Initialize an empty disjoint-set forest."""
+
         self.root: dict[tuple[str, int], tuple[str, int]] = {}
 
     def find(self, value: tuple[str, int]) -> tuple[str, int]:
@@ -183,10 +185,14 @@ def write_reaction_paths(paths: list[ReactionPath], output_file: str | Path = "p
 
 
 def _format_reaction(reactants: list[str], products: list[str]) -> str:
+    """Format sorted reactant and product SMILES lists as a path string."""
+
     return f"{reactants} -> {products}"
 
 
 def _iter_reactions(smiles: dict[int, list[str]], smiles_id: dict[int, list[list[str]]]):
+    """Yield reaction clusters for each adjacent timestep pair."""
+
     timesteps = sorted(smiles.keys())
     for t1, t2 in zip(timesteps, timesteps[1:], strict=False):
         atom_mapping_t1 = map_atoms_to_mols(smiles[t1], smiles_id[t1])
@@ -208,6 +214,8 @@ def _iter_reactions(smiles: dict[int, list[str]], smiles_id: dict[int, list[list
 
 
 def _atom_sort_key(atom_id: str) -> tuple[int, str]:
+    """Return a stable numeric-first sort key for atom identifiers."""
+
     try:
         return int(atom_id), atom_id
     except ValueError:

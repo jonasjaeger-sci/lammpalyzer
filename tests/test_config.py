@@ -1,3 +1,5 @@
+"""Tests for lammpalyze input-file parsing."""
+
 from pathlib import Path
 
 import pytest
@@ -6,6 +8,8 @@ from lammpalyze.config import parse_input_file
 
 
 def test_parse_input_file_groups_simulations(tmp_path: Path):
+    """Parse grouped simulation paths from a sample input file."""
+
     for name in [
         "bonds_R1.reax",
         "species_R1.out",
@@ -37,6 +41,8 @@ def test_parse_input_file_groups_simulations(tmp_path: Path):
 
 
 def test_parse_input_file_reports_missing_referenced_files(tmp_path: Path):
+    """Report a helpful error when referenced output files are missing."""
+
     input_file = tmp_path / "lmplyz.inp"
     input_file.write_text(
         """

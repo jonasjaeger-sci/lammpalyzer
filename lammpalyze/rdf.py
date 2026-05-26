@@ -89,6 +89,8 @@ def _frame_rdf(
     element_b: str,
     bins: np.ndarray,
 ) -> np.ndarray | None:
+    """Compute the RDF contribution for one trajectory frame."""
+
     box_lengths = _box_lengths(frame)
     volume = float(np.prod(box_lengths))
     positions_a = _positions_for_element(frame, type_to_element, element_a)
@@ -123,6 +125,8 @@ def _positions_for_element(
     type_to_element: dict[int, str],
     element: str,
 ) -> np.ndarray:
+    """Return Cartesian positions for atoms matching ``element``."""
+
     return np.array(
         [
             [atom.x, atom.y, atom.z]
@@ -138,10 +142,14 @@ def _minimum_image_distances(
     positions_b: np.ndarray,
     box_lengths: np.ndarray,
 ) -> np.ndarray:
+    """Return pair distances under periodic minimum-image wrapping."""
+
     displacement = positions_a[:, np.newaxis, :] - positions_b[np.newaxis, :, :]
     displacement -= box_lengths * np.round(displacement / box_lengths)
     return np.linalg.norm(displacement, axis=2)
 
 
 def _box_lengths(frame: TrajectoryFrame) -> np.ndarray:
+    """Return x, y, and z box lengths for a trajectory frame."""
+
     return frame.bounds[:, 1] - frame.bounds[:, 0]

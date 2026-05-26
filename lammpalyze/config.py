@@ -101,6 +101,8 @@ def validate_config(config: LammpalyzeConfig) -> None:
 
 
 def _read_assignments(path: Path) -> dict[str, str]:
+    """Read ``key = value`` assignments from a lammpalyze input file."""
+
     assignments: dict[str, str] = {}
     assignment_re = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$")
 
@@ -121,6 +123,8 @@ def _read_assignments(path: Path) -> dict[str, str]:
 
 
 def _parse_element_list(assignments: dict[str, str]) -> list[str]:
+    """Parse the required ``element_list`` assignment as a list of strings."""
+
     raw_value = assignments.get("element_list")
     if raw_value is None:
         raise ValueError("Missing required setting: element_list = [\"C\", \"H\", ...]")
@@ -136,6 +140,8 @@ def _parse_element_list(assignments: dict[str, str]) -> list[str]:
 
 
 def _group_paths(assignments: dict[str, str], base_dir: Path) -> dict[str, dict[int, Path]]:
+    """Group output-file assignments by topic and simulation index."""
+
     grouped: dict[str, dict[int, Path]] = {topic: {} for topic in TOPIC_PREFIXES}
 
     for key, raw_value in assignments.items():
@@ -155,6 +161,8 @@ def _group_paths(assignments: dict[str, str], base_dir: Path) -> dict[str, dict[
 
 
 def _topic_for_key(key: str) -> str | None:
+    """Return the output topic represented by an input-file assignment key."""
+
     for topic, prefixes in TOPIC_PREFIXES.items():
         if any(key.startswith(prefix) for prefix in prefixes):
             return topic
@@ -162,6 +170,8 @@ def _topic_for_key(key: str) -> str | None:
 
 
 def _suffix_number(key: str) -> int:
+    """Return the trailing integer suffix from ``key``, defaulting to one."""
+
     match = re.search(r"(\d+)$", key)
     if match:
         return int(match.group(1))
@@ -169,6 +179,8 @@ def _suffix_number(key: str) -> int:
 
 
 def _strip_quotes(value: str) -> str:
+    """Remove matching single or double quotes around an assignment value."""
+
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
         return value[1:-1]
     return value

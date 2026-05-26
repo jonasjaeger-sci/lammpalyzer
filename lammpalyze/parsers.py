@@ -433,6 +433,8 @@ def map_atoms_to_mols(smiles_list: list[str], ids_list: list[list[str]]) -> dict
 
 
 def _trajectory_atom_from_values(columns: list[str], values: list[str]) -> TrajectoryAtom:
+    """Build a trajectory atom from one LAMMPS atom-table row."""
+
     column_index = {column: index for index, column in enumerate(columns)}
     x_column = _first_available_column(column_index, ("xu", "x", "xs"))
     y_column = _first_available_column(column_index, ("yu", "y", "ys"))
@@ -447,6 +449,8 @@ def _trajectory_atom_from_values(columns: list[str], values: list[str]) -> Traje
 
 
 def _first_available_column(column_index: dict[str, int], candidates: tuple[str, ...]) -> str:
+    """Return the first candidate column present in the atom-table header."""
+
     for column in candidates:
         if column in column_index:
             return column
@@ -463,6 +467,8 @@ def _store_bond_frame(
     smiles_atoms: dict[int, list[list[str]]],
     chem_formulas: dict[int, list[str]],
 ) -> None:
+    """Convert one completed ReaxFF bond frame into molecule records."""
+
     components = _bond_components(atoms, bonds)
     smiles_list: list[str] = []
     formula_list: list[str] = []
@@ -495,6 +501,8 @@ class _FrameUnionFind:
     """Union-find helper for molecule fragments within one bond frame."""
 
     def __init__(self) -> None:
+        """Initialize an empty disjoint-set forest for atom ids."""
+
         self.root: dict[str, str] = {}
 
     def add(self, value: str) -> None:
@@ -523,6 +531,8 @@ def _bond_components(
     atoms: dict[str, str],
     bonds: list[tuple[int, int, object]],
 ) -> list[list[str]]:
+    """Return atom-id components connected by bonds within one frame."""
+
     union_find = _FrameUnionFind()
     for atom_id in atoms:
         union_find.add(atom_id)
@@ -540,6 +550,8 @@ def _component_signature(
     atoms: dict[str, str],
     component_bonds: list[tuple[int, int, object]],
 ) -> tuple[tuple[str, ...], tuple[tuple[int, int, str], ...]]:
+    """Return a cache key describing a molecule component topology."""
+
     local_index = {atom_id: index for index, atom_id in enumerate(component_ids)}
     elements = tuple(atoms[atom_id] for atom_id in component_ids)
     bonds = tuple(
@@ -560,6 +572,8 @@ def _component_smiles_and_formula(
     atoms: dict[str, str],
     component_bonds: list[tuple[int, int, object]],
 ) -> tuple[str, str]:
+    """Build RDKit SMILES and formula values for one molecule component."""
+
     local_index = {atom_id: index for index, atom_id in enumerate(component_ids)}
     mol = Chem.RWMol()
 
@@ -578,6 +592,8 @@ def _component_smiles_and_formula(
 
 
 def _require_rdkit() -> None:
+    """Raise an informative error when RDKit bond parsing support is missing."""
+
     if Chem is None or Descriptors is None:
         raise ImportError(
             "RDKit is required for bond parsing and SMILES visualization. "

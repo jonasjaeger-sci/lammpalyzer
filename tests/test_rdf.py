@@ -1,3 +1,5 @@
+"""Tests for radial distribution function calculations."""
+
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +11,8 @@ from lammpalyze.rdf import compute_rdf
 
 
 def test_compute_rdf_averages_selected_timestep_range(tmp_path: Path):
+    """Average RDF values over the selected timestep range."""
+
     trajectory = tmp_path / "traj.lammpstrj"
     trajectory.write_text(
         """ITEM: TIMESTEP
@@ -54,6 +58,8 @@ ITEM: ATOMS id type q xu yu zu
 
 
 def test_compute_rdf_uses_per_simulation_radial_grid(tmp_path: Path):
+    """Keep separate radial grids for simulations with different box sizes."""
+
     trajectory_1 = tmp_path / "traj_1.lammpstrj"
     trajectory_2 = tmp_path / "traj_2.lammpstrj"
     trajectory_1.write_text(_trajectory_text(box_length=10), encoding="utf-8")
@@ -70,6 +76,8 @@ def test_compute_rdf_uses_per_simulation_radial_grid(tmp_path: Path):
 
 
 def test_compute_rdf_rejects_non_positive_bin_width(tmp_path: Path):
+    """Reject zero or negative RDF bin widths."""
+
     trajectory = tmp_path / "traj.lammpstrj"
     trajectory.write_text(_trajectory_text(box_length=10), encoding="utf-8")
     simulation = LoadedSimulation(
@@ -83,6 +91,8 @@ def test_compute_rdf_rejects_non_positive_bin_width(tmp_path: Path):
 
 
 def test_compute_rdf_reports_empty_timestep_range(tmp_path: Path):
+    """Report an empty RDF timestep range."""
+
     trajectory = tmp_path / "traj.lammpstrj"
     trajectory.write_text(_trajectory_text(box_length=10), encoding="utf-8")
     simulation = LoadedSimulation(
@@ -96,6 +106,8 @@ def test_compute_rdf_reports_empty_timestep_range(tmp_path: Path):
 
 
 def test_compute_rdf_handles_same_element_pairs_without_self_distances(tmp_path: Path):
+    """Compute same-element RDFs without including self distances."""
+
     trajectory = tmp_path / "traj.lammpstrj"
     trajectory.write_text(
         """ITEM: TIMESTEP
@@ -127,6 +139,8 @@ ITEM: ATOMS id type q xu yu zu
 
 
 def _trajectory_text(box_length: int) -> str:
+    """Return a minimal trajectory file with a configurable cubic box."""
+
     return f"""ITEM: TIMESTEP
 0
 ITEM: NUMBER OF ATOMS

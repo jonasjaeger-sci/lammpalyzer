@@ -80,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _should_launch_gui(force_gui: bool, no_gui: bool) -> bool:
+    """Return whether the GUI should open for the requested CLI flags."""
+
     if no_gui:
         return False
     if force_gui:

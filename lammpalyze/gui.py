@@ -62,6 +62,8 @@ class LammpalyzeGUI:
     """GUI for species, thermo, SMILES, and reaction visualization."""
 
     def __init__(self, project: LammpalyzeProject) -> None:
+        """Create the main window and initialize project-backed GUI state."""
+
         self.project = project
         (
             self._reaction_simulation_indices,
@@ -90,6 +92,8 @@ class LammpalyzeGUI:
         self.root.mainloop()
 
     def _build(self) -> None:
+        """Build the tabbed GUI layout."""
+
         top_bar = ttk.Frame(self.root)
         top_bar.pack(fill="x", padx=8, pady=(8, 0))
         ttk.Button(top_bar, text="Quit", command=self.close).pack(side="right")
@@ -118,6 +122,8 @@ class LammpalyzeGUI:
         self._build_reaction_tab(reaction_tab)
 
     def _build_species_tab(self, parent: ttk.Frame) -> None:
+        """Create controls and output area for species plotting."""
+
         controls = ttk.Frame(parent)
         controls.pack(side="left", fill="y", padx=8, pady=8)
         plot_area = ttk.Frame(parent)
@@ -158,6 +164,8 @@ class LammpalyzeGUI:
         self._update_species_toggle_label()
 
     def _build_thermo_tab(self, parent: ttk.Frame) -> None:
+        """Create controls and scrollable output area for thermo plots."""
+
         controls = ttk.Frame(parent)
         controls.pack(side="left", fill="y", padx=8, pady=8)
         plot_area = ttk.Frame(parent)
@@ -285,6 +293,8 @@ class LammpalyzeGUI:
         ttk.Button(controls, text="Plot", command=self._plot_thermo).pack(fill="x")
 
     def _build_rdf_tab(self, parent: ttk.Frame) -> None:
+        """Create controls and output area for RDF plotting."""
+
         controls = ttk.Frame(parent)
         controls.pack(side="left", fill="y", padx=8, pady=8)
         plot_area = ttk.Frame(parent)
@@ -340,6 +350,8 @@ class LammpalyzeGUI:
         self._set_rdf_last_timesteps()
 
     def _build_smiles_tab(self, parent: ttk.Frame) -> None:
+        """Create controls and output area for molecule rendering."""
+
         controls = ttk.Frame(parent)
         controls.pack(side="left", fill="y", padx=8, pady=8)
         output = ttk.Frame(parent)
@@ -377,6 +389,8 @@ class LammpalyzeGUI:
         self._refresh_formula_options()
 
     def _build_reaction_table_tab(self, parent: ttk.Frame) -> None:
+        """Create the reaction-path count table and copy controls."""
+
         table_frame = ttk.Frame(parent)
         table_frame.pack(fill="both", expand=True, padx=8, pady=8)
 
@@ -439,6 +453,8 @@ class LammpalyzeGUI:
             self._sync_reaction_path_copy_field()
 
     def _build_reaction_tab(self, parent: ttk.Frame) -> None:
+        """Create controls for opening reaction occurrences in OVITO."""
+
         controls = ttk.Frame(parent)
         controls.pack(side="left", fill="y", padx=8, pady=8)
         output = ttk.Frame(parent)
@@ -468,6 +484,8 @@ class LammpalyzeGUI:
         self.reaction_status.pack(anchor="nw", padx=8, pady=8)
 
     def _plot_species(self) -> None:
+        """Plot selected species for selected simulations."""
+
         try:
             simulations = self._selected_species_simulations()
             selected_species = [self.species_list.get(index) for index in self.species_list.curselection()]
@@ -479,6 +497,8 @@ class LammpalyzeGUI:
             messagebox.showerror("Species plotting failed", str(exc))
 
     def _plot_thermo(self) -> None:
+        """Plot the selected thermo parameter for selected simulations."""
+
         try:
             parameter = self.thermo_parameter.get()
             if not parameter:
@@ -507,6 +527,8 @@ class LammpalyzeGUI:
             messagebox.showerror("Thermo plotting failed", str(exc))
 
     def _plot_rdf(self) -> None:
+        """Compute and plot RDF curves from the selected GUI values."""
+
         try:
             simulations = self._selected_rdf_simulations()
             if not simulations:
@@ -533,6 +555,8 @@ class LammpalyzeGUI:
             messagebox.showerror("RDF plotting failed", str(exc))
 
     def _generate_molecule(self) -> None:
+        """Render the selected SMILES string in the molecule tab."""
+
         try:
             smiles = self.smiles_value.get()
             if not smiles:
@@ -543,6 +567,8 @@ class LammpalyzeGUI:
             messagebox.showerror("SMILES visualization failed", str(exc))
 
     def _schedule_molecule_resize(self, _event=None) -> None:
+        """Debounce molecule image resizing after output-area changes."""
+
         if not self._molecule_smiles:
             return
         if self._molecule_resize_job is not None:
@@ -550,6 +576,8 @@ class LammpalyzeGUI:
         self._molecule_resize_job = self.root.after(MOLECULE_RESIZE_DEBOUNCE_MS, self._render_molecule_image)
 
     def _render_molecule_image(self) -> None:
+        """Render the current molecule image at the available display size."""
+
         self._molecule_resize_job = None
         if not self._molecule_smiles:
             return
@@ -562,6 +590,8 @@ class LammpalyzeGUI:
         self.molecule_label.configure(image=self._molecule_photo)
 
     def _open_reaction_in_ovito(self) -> None:
+        """Open the first matching reaction occurrence in OVITO."""
+
         try:
             reaction = normalize_reaction_path(self.reaction_path_value.get())
             if not reaction:
@@ -583,19 +613,29 @@ class LammpalyzeGUI:
             messagebox.showerror("OVITO visualization failed", str(exc))
 
     def _selected_species_simulations(self):
+        """Return species-capable simulations selected in the species listbox."""
+
         available = [simulation for simulation in self.project.simulations if simulation.species_df is not None]
         return [available[index] for index in self.species_sim_list.curselection()]
 
     def _selected_thermo_simulations(self):
+        """Return thermo-capable simulations selected in the thermo listbox."""
+
         return [self._thermo_simulations[index] for index in self.thermo_sim_list.curselection()]
 
     def _selected_rdf_simulations(self):
+        """Return trajectory-capable simulations selected in the RDF listbox."""
+
         return [self._rdf_simulations[index] for index in self.rdf_sim_list.curselection()]
 
     def _thermo_legend_labels(self) -> dict[int, str]:
+        """Return custom thermo legend labels keyed by simulation index."""
+
         return {index: label_var.get() for index, label_var in self.thermo_label_vars.items()}
 
     def _set_rdf_last_timesteps(self) -> None:
+        """Populate RDF timestep entries with the last five selected timesteps."""
+
         timesteps = sorted(
             {
                 timestep
@@ -612,6 +652,8 @@ class LammpalyzeGUI:
         self.rdf_timestep_end.set(str(selected[-1]))
 
     def _rdf_timesteps(self, simulation: LoadedSimulation) -> list[int]:
+        """Return cached trajectory timesteps for one simulation."""
+
         if simulation.index not in self._rdf_timesteps_by_simulation:
             if simulation.trajectory_path is None:
                 self._rdf_timesteps_by_simulation[simulation.index] = []
@@ -622,11 +664,15 @@ class LammpalyzeGUI:
         return self._rdf_timesteps_by_simulation[simulation.index]
 
     def _thermo_step_range(self) -> tuple[float, float] | None:
+        """Return the selected thermo step range, or ``None`` if unavailable."""
+
         if self._thermo_step_bounds is None:
             return None
         return tuple(sorted((self.thermo_step_min.get(), self.thermo_step_max.get())))
 
     def _thermo_y_range(self) -> tuple[float, float] | None:
+        """Return the selected thermo y-axis range, or ``None`` for auto limits."""
+
         minimum = self.thermo_y_min.get().strip()
         maximum = self.thermo_y_max.get().strip()
         if not minimum and not maximum:
@@ -636,10 +682,14 @@ class LammpalyzeGUI:
         return tuple(sorted((float(minimum), float(maximum))))
 
     def _update_thermo_range_controls(self, preserve: bool) -> None:
+        """Refresh step and y-axis range controls for the thermo tab."""
+
         self._update_thermo_step_controls(preserve=preserve)
         self._update_thermo_y_controls(preserve=preserve)
 
     def _update_thermo_step_controls(self, preserve: bool) -> None:
+        """Refresh thermo step sliders, optionally preserving their values."""
+
         bounds = self._thermo_step_bounds_for_simulations(self._selected_thermo_simulations())
         if bounds is None:
             bounds = self._thermo_step_bounds_for_simulations(self._thermo_simulations)
@@ -674,6 +724,8 @@ class LammpalyzeGUI:
         self._refresh_thermo_step_label()
 
     def _thermo_step_bounds_for_simulations(self, simulations) -> tuple[float, float] | None:
+        """Return min and max Step values across simulations with thermo data."""
+
         bounds = []
         for simulation in simulations:
             if simulation.thermo_df is None or "Step" not in simulation.thermo_df.columns:
@@ -687,6 +739,8 @@ class LammpalyzeGUI:
         return min(bound[0] for bound in bounds), max(bound[1] for bound in bounds)
 
     def _on_thermo_step_slider(self, changed: str) -> None:
+        """Keep thermo step sliders ordered after one slider changes."""
+
         if self._updating_thermo_step_controls:
             return
         lower = self.thermo_step_min.get()
@@ -699,6 +753,8 @@ class LammpalyzeGUI:
         self._refresh_thermo_step_label()
 
     def _refresh_thermo_step_label(self) -> None:
+        """Update the text label that displays the selected step range."""
+
         if self._thermo_step_bounds is None:
             self.thermo_step_label.set("No step data")
             return
@@ -708,6 +764,8 @@ class LammpalyzeGUI:
         )
 
     def _update_thermo_y_controls(self, preserve: bool) -> None:
+        """Refresh y-axis range entries for the selected thermo parameter."""
+
         bounds = self._thermo_y_bounds_for_simulations(
             self._selected_thermo_simulations(),
             self.thermo_parameter.get(),
@@ -738,6 +796,8 @@ class LammpalyzeGUI:
         simulations,
         parameter: str,
     ) -> tuple[float, float] | None:
+        """Return min and max values for a thermo parameter across simulations."""
+
         bounds = []
         if not parameter:
             return None
@@ -754,11 +814,15 @@ class LammpalyzeGUI:
 
     @staticmethod
     def _format_step_value(value: float) -> str:
+        """Format whole-number floats without a decimal part."""
+
         if float(value).is_integer():
             return str(int(value))
         return f"{value:g}"
 
     def _selected_reaction_path_from_table(self) -> str:
+        """Return the reaction path from the selected or focused table row."""
+
         selected = self.reaction_table.selection()
         item_id = selected[0] if selected else self.reaction_table.focus()
         if not item_id:
@@ -766,9 +830,13 @@ class LammpalyzeGUI:
         return self.reaction_table.set(item_id, "reaction")
 
     def _sync_reaction_path_copy_field(self, _event=None) -> None:
+        """Copy the selected table reaction into the read-only text field."""
+
         self.reaction_path_copy_value.set(self._selected_reaction_path_from_table())
 
     def _copy_selected_reaction_path(self, _event=None) -> str:
+        """Copy the selected reaction path to the system clipboard."""
+
         reaction = self._selected_reaction_path_from_table()
         if reaction:
             self.root.clipboard_clear()
@@ -778,6 +846,8 @@ class LammpalyzeGUI:
         return "break"
 
     def _toggle_species_selection(self) -> None:
+        """Select or clear all species in the species listbox."""
+
         if self.species_list.size() == 0:
             return
         if len(self.species_list.curselection()) == self.species_list.size():
@@ -787,6 +857,8 @@ class LammpalyzeGUI:
         self._update_species_toggle_label()
 
     def _update_species_toggle_label(self) -> None:
+        """Set the species toggle button text from the current selection."""
+
         if not hasattr(self, "species_toggle_button"):
             return
         if self.species_list.size() == 0:
@@ -829,6 +901,8 @@ class LammpalyzeGUI:
             pass
 
     def _refresh_formula_options(self) -> None:
+        """Refresh formula options for the selected SMILES simulation."""
+
         simulation = self._selected_smiles_simulation()
         formulas = formulas_for_simulation(simulation.chem_formulas) if simulation and simulation.chem_formulas else []
         self.smiles_formula_combo.configure(values=formulas)
@@ -836,6 +910,8 @@ class LammpalyzeGUI:
         self._refresh_smiles_options()
 
     def _refresh_smiles_options(self) -> None:
+        """Refresh SMILES options for the selected formula."""
+
         simulation = self._selected_smiles_simulation()
         formula = self.smiles_formula.get()
         values = []
@@ -845,12 +921,16 @@ class LammpalyzeGUI:
         self.smiles_value.set(values[0] if values else "")
 
     def _selected_smiles_simulation(self):
+        """Return the simulation selected in the SMILES tab, if any."""
+
         value = self.smiles_simulation.get()
         if not value:
             return None
         return self.project.simulation(int(value))
 
     def _replace_canvas(self, attr_name: str, parent: ttk.Frame, figure) -> None:
+        """Replace one stored Matplotlib canvas with a new figure canvas."""
+
         old_canvas = getattr(self, attr_name)
         if old_canvas is not None:
             self._destroy_canvas(old_canvas)
@@ -860,6 +940,8 @@ class LammpalyzeGUI:
         setattr(self, attr_name, canvas)
 
     def _destroy_canvas(self, canvas: FigureCanvasTkAgg) -> None:
+        """Close and destroy a Matplotlib canvas widget."""
+
         try:
             plt.close(canvas.figure)
             canvas.get_tk_widget().destroy()
@@ -867,16 +949,22 @@ class LammpalyzeGUI:
             pass
 
     def _bind_thermo_mousewheel(self, _event) -> None:
+        """Bind global mouse-wheel scrolling while the pointer is over thermo plots."""
+
         self.root.bind_all("<MouseWheel>", self._on_thermo_mousewheel)
         self.root.bind_all("<Button-4>", self._on_thermo_mousewheel)
         self.root.bind_all("<Button-5>", self._on_thermo_mousewheel)
 
     def _unbind_thermo_mousewheel(self, _event) -> None:
+        """Remove global mouse-wheel bindings for thermo plot scrolling."""
+
         self.root.unbind_all("<MouseWheel>")
         self.root.unbind_all("<Button-4>")
         self.root.unbind_all("<Button-5>")
 
     def _on_thermo_mousewheel(self, event) -> None:
+        """Scroll the thermo plot canvas from mouse-wheel events."""
+
         if getattr(event, "num", None) == 4:
             delta = -1
         elif getattr(event, "num", None) == 5:

@@ -1,7 +1,11 @@
+"""Tests for reaction path counting and occurrence lookup."""
+
 from lammpalyze.reactions import count_reaction_paths, find_reaction_occurrences
 
 
 def test_count_reaction_paths_counts_split_reaction():
+    """Count split and recombination reactions across adjacent timesteps."""
+
     smiles = {
         0: ["AB"],
         1: ["A", "B"],
@@ -24,6 +28,8 @@ def test_count_reaction_paths_counts_split_reaction():
 
 
 def test_find_reaction_occurrences_returns_first_atom_metadata():
+    """Return atom ids and simulation metadata for the first matching reaction."""
+
     smiles = {0: ["AB"], 1: ["A", "B"]}
     smiles_id = {0: [["1", "2"]], 1: [["1"], ["2"]]}
 
