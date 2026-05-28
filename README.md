@@ -145,11 +145,17 @@ python -m pytest -q
 
 ## Linting
 
-Run pylint on the package:
+Run the configured style and lint checks:
 
 ```bash
+python -m pycodestyle lammpalyze tests
+python -m pydocstyle lammpalyze tests
 python -m pylint lammpalyze
 ```
+
+The `lammpalyze` and `tests` arguments mean the checks cover both package
+source code and tests. `pycodestyle` and `pydocstyle` read their settings from
+`setup.cfg`; `pylint` reads its project settings from `pyproject.toml`.
 
 ## Package Layout
 

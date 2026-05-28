@@ -19,7 +19,11 @@ dependencies = [
 [project.optional-dependencies]
 smiles = ["rdkit>=2023.9"]
 test = ["pytest>=7.0"]
-lint = ["pylint>=4.0"]
+lint = [
+  "pycodestyle>=2.14",
+  "pydocstyle>=6.3",
+  "pylint>=4.0",
+]
 
 [project.scripts]
 lammpalyze = "lammpalyze.cli:main"

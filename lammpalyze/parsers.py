@@ -173,8 +173,8 @@ def parse_bonds(
             n_bonds = int(parts[2])
             atoms[parts[0]] = type_to_element[atom_type]
 
-            bonded_atoms = [int(value) for value in parts[3 : 3 + n_bonds]]
-            bond_orders = [float(value) for value in parts[4 + n_bonds : 4 + 2 * n_bonds]]
+            bonded_atoms = [int(value) for value in parts[3: 3 + n_bonds]]
+            bond_orders = [float(value) for value in parts[4 + n_bonds: 4 + 2 * n_bonds]]
             for bonded_id, bond_order in zip(bonded_atoms, bond_orders, strict=False):
                 if atom_id < bonded_id:
                     bonds.append((atom_id, bonded_id, bo_to_rdkit_bond(bond_order)))
@@ -407,8 +407,8 @@ def read_reax_bonds_frame(filename: str | Path, target_timestep: int) -> list[Re
 
             atom_i = int(parts[0])
             n_bonds = int(parts[2])
-            bonded_atoms = [int(value) for value in parts[3 : 3 + n_bonds]]
-            bond_orders = [float(value) for value in parts[4 + n_bonds : 4 + 2 * n_bonds]]
+            bonded_atoms = [int(value) for value in parts[3: 3 + n_bonds]]
+            bond_orders = [float(value) for value in parts[4 + n_bonds: 4 + 2 * n_bonds]]
             for atom_j, bond_order in zip(bonded_atoms, bond_orders, strict=False):
                 if atom_i < atom_j:
                     bonds.append(ReaxBond(atom_i=atom_i, atom_j=atom_j, order=bond_order))

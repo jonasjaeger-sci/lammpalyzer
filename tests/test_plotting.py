@@ -7,9 +7,9 @@ import pandas as pd
 
 matplotlib.use("Agg")
 
-from lammpalyze.analysis import LoadedSimulation
-from lammpalyze.plotting import plot_rdf, plot_thermo
-from lammpalyze.rdf import RDFResult
+from lammpalyze.analysis import LoadedSimulation  # noqa: E402
+from lammpalyze.plotting import plot_rdf, plot_thermo  # noqa: E402
+from lammpalyze.rdf import RDFResult  # noqa: E402
 
 
 def test_plot_thermo_returns_combined_and_average_figures():
