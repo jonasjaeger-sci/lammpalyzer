@@ -68,39 +68,24 @@ The number at the end of each key groups files into simulations. For example,
 `element_list` maps LAMMPS atom types to element symbols. In the example above,
 atom type 1 is `C`, type 2 is `H`, type 3 is `Li`, and type 4 is `O`.
 
-### `lmplyz.inp` Grammar
+### Input Rules
 
-The input format is line-oriented and intended to be easy to generate from
-scripts:
+Each useful line in `lmplyz.inp` is either a comment or a `key = value`
+assignment. Comments start with `#`, and blank lines are ignored.
 
-```ebnf
-file        = { line } ;
-line        = ws, [comment | banner | assignment], ws ;
-comment     = "#", text ;
-banner      = "---", text ;
-assignment  = key, ws, "=", ws, value, [ws, comment] ;
+`element_list` is required and must be written as a Python-style list of element
+symbols:
 
-key         = "element_list" | path_key ;
-path_key    = prefix, [label], [index] ;
-prefix      = "BF" | "BondF" | "BondFile"
-            | "SF" | "SpeciesF" | "SpeciesFile"
-            | "ThermoF" | "TF" | "ThermoFile"
-            | "TrajF" | "TrajectoryF" | "TrajectoryFile" ;
-index       = digit, { digit } ;
-label       = letter_or_underscore, { letter_or_digit_or_underscore } ;
-
-value       = python_string_list | path ;
-python_string_list = "[" string, { ",", string }, "]" ;
-path        = unquoted_path | single_quoted_path | double_quoted_path ;
-ws          = { " " | "\t" } ;
+```text
+element_list = ["C", "H", "Li", "O"]
 ```
 
-`element_list` is required and must be a Python-style list of strings. Path
-assignments are optional per simulation, but at least one recognized path key
-must be present. A trailing number selects the simulation index; if no trailing
-number is present, index `1` is used. For generated keys, prefer the simple
-forms `BF<N>`, `SF<N>`, `ThermoF<N>`, and `TrajF<N>`. Recognized path prefixes
-map to file types as follows:
+File entries use a short prefix plus an optional simulation number. For example,
+`BF1`, `SF1`, `ThermoF1`, and `TrajF1` are grouped as simulation 1; `BF2`,
+`SF2`, `ThermoF2`, and `TrajF2` are grouped as simulation 2. If no number is
+given, lammpalyze treats the entry as simulation 1.
+
+Use these prefixes:
 
 ```text
 BF, BondF, BondFile                  -> ReaxFF bond file
@@ -121,7 +106,7 @@ Run the package with:
 lammpalyze -i lmplyz.inp
 ```
 
-This loads the configured files, writes reaction path counts to `paths.out`, and
+This loads the configured files, writes reaction path counts to `paths.csv`, and
 opens the GUI when a display is available.
 
 Useful command examples:
@@ -134,7 +119,7 @@ lammpalyze -i lmplyz.inp --no-gui
 lammpalyze -i lmplyz.inp --gui
 
 # Write reaction paths to a custom file
-lammpalyze -i lmplyz.inp -o reaction_paths.tsv
+lammpalyze -i lmplyz.inp -o reaction_paths.csv
 ```
 
 ## GUI Overview
@@ -152,14 +137,21 @@ The GUI contains tabs for common analysis tasks:
 - `Reaction visualization`: open the first occurrence of a selected reaction in
   OVITO, if OVITO is installed.
 
-## Output: `paths.out`
+## Output: `paths.csv`
 
-The reaction path output is a tab-separated table:
+The reaction path output is a CSV file. It starts with a small metadata block,
+then lists reaction counts per simulation and as a total:
 
-```text
-Reaction	Count
-['[H][H]'] -> ['[H]', '[H]']	3
-['[Li]', '[O]'] -> ['[Li][O]']	1
+```csv
+Metadata,Value
+input_file,/path/to/lmplyz.inp
+run_date,2026-05-29T15:20:30+02:00
+simulation_ids,1;2
+software_version,0.1.0
+
+Reaction,Simulation 1,Simulation 2,Sum
+"['[H][H]'] -> ['[H]', '[H]']",2,1,3
+"['[Li]', '[O]'] -> ['[Li][O]']",1,0,1
 ```
 
 ## Tests
