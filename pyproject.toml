@@ -42,6 +42,7 @@ add-ignore = "D202"
 persistent = false
 
 [tool.pylint.format]
+# Keep pylint aligned with pycodestyle and avoid low-value wrapping in type-heavy code.
 max-line-length = 120
 
 [tool.pylint."messages control"]
