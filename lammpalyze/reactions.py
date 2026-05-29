@@ -177,7 +177,7 @@ def write_reaction_paths(paths: list[ReactionPath], output_file: str | Path = "p
 
     output_path = Path(output_file)
     with output_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle, delimiter="\t")
+        writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
         writer.writerow(["Reaction", "Count"])
         for path in paths:
             writer.writerow([path.reaction, path.count])

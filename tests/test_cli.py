@@ -78,4 +78,7 @@ def test_lammpalyze_example_cli_writes_expected_paths(tmp_path: Path):
     assert result.returncode == 0, result.stderr
     assert "Loaded 2 simulation(s)." in result.stdout
     assert "Wrote 388 reaction path(s)" in result.stdout
-    assert output_path.read_bytes() == (example_dir / "paths.out").read_bytes()
+    assert b"\r\n" not in output_path.read_bytes()
+    assert output_path.read_text(encoding="utf-8").splitlines() == (
+        example_dir / "paths.out"
+    ).read_text(encoding="utf-8").splitlines()
