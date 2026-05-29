@@ -13,7 +13,7 @@ from lammpalyze.analysis import load_project
 from lammpalyze.config import parse_input_file
 from lammpalyze.info import LOGO, PROGRAM_NAME, VERSION
 from lammpalyze.reactions import write_reaction_paths_csv
-from lammpalyze.validation import format_validation_report, validate_input_file
+from lammpalyze.validation import format_validation_report, validate_config, validate_input_file
 
 _DATE_FMT = "%d.%m.%Y %H:%M:%S"
 LOGGER = logging.getLogger(__name__)
@@ -81,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         LOGGER.info("Reading input file %s", args.input)
         config = parse_input_file(args.input)
+        validate_config(config)
         progress = _ProgressBar(enabled=_progress_enabled(args.verbose, args.quiet))
         project = load_project(config, progress_callback=progress.update)
         simulation_indices, paths, counts_by_reaction = project.reaction_path_table()

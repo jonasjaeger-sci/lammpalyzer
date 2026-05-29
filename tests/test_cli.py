@@ -42,7 +42,13 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
         calls["writer_kwargs"] = kwargs
         return target_path
 
+    def fake_validate_config(loaded_config):
+        """Record the config passed through preflight validation."""
+
+        calls["validated_config"] = loaded_config
+
     monkeypatch.setattr(cli, "parse_input_file", fake_parse_input_file)
+    monkeypatch.setattr(cli, "validate_config", fake_validate_config)
     monkeypatch.setattr(cli, "load_project", fake_load_project)
     monkeypatch.setattr(cli, "write_reaction_paths_csv", fake_write_reaction_paths_csv)
 
@@ -51,6 +57,7 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
     assert exit_code == 0
     assert calls == {
         "input_path": "lmplyz.inp",
+        "validated_config": config,
         "config": config,
         "progress_callback": calls["progress_callback"],
         "paths": paths,

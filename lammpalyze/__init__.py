@@ -3,7 +3,13 @@
 from lammpalyze.analysis import LammpalyzeProject, LoadedSimulation, load_project
 from lammpalyze.config import LammpalyzeConfig, SimulationFiles, parse_input_file
 from lammpalyze.info import __version__
-from lammpalyze.reactions import ReactionOccurrence, ReactionPath, count_reaction_paths, write_reaction_paths_csv
+from lammpalyze.reactions import (
+    ReactionOccurrence,
+    ReactionPath,
+    build_reaction_path_table,
+    count_reaction_paths,
+    write_reaction_paths_csv,
+)
 
 __all__ = [
     "__version__",
@@ -13,6 +19,7 @@ __all__ = [
     "ReactionOccurrence",
     "ReactionPath",
     "SimulationFiles",
+    "build_reaction_path_table",
     "count_reaction_paths",
     "load_project",
     "parse_input_file",

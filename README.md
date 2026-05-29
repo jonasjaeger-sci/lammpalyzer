@@ -210,13 +210,14 @@ source code and tests. `pycodestyle` and `pydocstyle` read their settings from
 ```text
 lammpalyze/
   cli.py          command-line entry point
-  config.py       input-file parsing and validation
-  parsers.py      species, thermo, bond, and trajectory readers
+  config.py       input-file parsing
+  validation.py   input preflight validation
   analysis.py     project loading and shared numerical helpers
   reactions.py    reaction path counting and occurrence lookup
   rdf.py          radial distribution function calculations
   plotting.py     Matplotlib plotting helpers
-  gui.py          Tkinter GUI
+  parsers/        species, thermo, bond, and trajectory readers
+  gui/            Tkinter GUI tabs and application shell
   smiles.py       SMILES utilities and molecule rendering
   ovito.py        OVITO scene generation
 examples/

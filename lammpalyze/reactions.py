@@ -173,6 +173,26 @@ def find_reaction_occurrences(
     return occurrences
 
 
+def build_reaction_path_table(simulations) -> tuple[list[int], list[ReactionPath], dict[str, dict[int, int]]]:
+    """Build total and per-simulation reaction counts from loaded simulations."""
+
+    simulation_indices = []
+    counts_by_reaction: dict[str, dict[int, int]] = {}
+    all_paths: dict[str, int] = {}
+    for simulation in simulations:
+        if simulation.smiles is None or simulation.smiles_id is None:
+            continue
+        simulation_indices.append(simulation.index)
+        for path in count_reaction_paths(simulation.smiles, simulation.smiles_id):
+            counts_by_reaction.setdefault(path.reaction, {})[simulation.index] = path.count
+            all_paths[path.reaction] = all_paths.get(path.reaction, 0) + path.count
+    paths = [
+        ReactionPath(reaction, count)
+        for reaction, count in sorted(all_paths.items(), key=lambda item: item[1], reverse=True)
+    ]
+    return simulation_indices, paths, counts_by_reaction
+
+
 def write_reaction_paths_csv(
     paths: list[ReactionPath],
     output_file: str | Path = "paths.csv",

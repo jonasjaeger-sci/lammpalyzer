@@ -30,7 +30,10 @@ Thumbs.db
 
 # Local run outputs
 /paths.out
+/paths.csv
 examples/**/paths.out
+examples/**/paths.csv
+**/.~lock.*#
 reaction_paths*.tsv
 *.png
 *.pdf

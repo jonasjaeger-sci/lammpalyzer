@@ -42,7 +42,7 @@ class LammpalyzeConfig:
         return {idx + 1: element for idx, element in enumerate(self.element_list)}
 
 
-def parse_input_file(input_file: str | Path, *, validate: bool = True) -> LammpalyzeConfig:
+def parse_input_file(input_file: str | Path) -> LammpalyzeConfig:
     """Parse ``lmplyz.inp`` into paths grouped by simulation index.
 
     The parser accepts the current ``lmplyz.inp`` style, for example
@@ -75,29 +75,7 @@ def parse_input_file(input_file: str | Path, *, validate: bool = True) -> Lammpa
         )
         for idx in indexes
     ]
-    config = LammpalyzeConfig(path, element_list, simulations)
-
-    if validate:
-        validate_config(config)
-    return config
-
-
-def validate_config(config: LammpalyzeConfig) -> None:
-    """Catch missing inputs early, before the heavier parsers start work."""
-
-    if not config.element_list:
-        raise ValueError("element_list is empty. Add for example: element_list = [\"C\", \"H\", \"O\"]")
-
-    missing: list[str] = []
-    for simulation in config.simulations:
-        for topic in ("bond", "species", "thermo", "trajectory"):
-            value = getattr(simulation, topic)
-            if value is not None and not value.exists():
-                missing.append(f"simulation {simulation.index} {topic}: {value}")
-
-    if missing:
-        details = "\n".join(f"  - {item}" for item in missing)
-        raise FileNotFoundError(f"Referenced output file(s) do not exist:\n{details}")
+    return LammpalyzeConfig(path, element_list, simulations)
 
 
 def _read_assignments(path: Path) -> dict[str, str]:

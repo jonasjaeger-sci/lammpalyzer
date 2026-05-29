@@ -39,12 +39,27 @@ class ValidationReport:
 def validate_input_file(input_file: str | Path) -> ValidationReport:
     """Inspect a project file and report issues without loading full datasets."""
 
-    issues: list[ValidationIssue] = []
     try:
-        config = parse_input_file(input_file, validate=False)
+        config = parse_input_file(input_file)
     except Exception as exc:
         return ValidationReport(input_file=None, issues=[ValidationIssue("error", str(exc))])
+    return validate_parsed_config(config)
 
+
+def validate_config(config: LammpalyzeConfig) -> None:
+    """Raise when a parsed project contains blocking validation errors."""
+
+    report = validate_parsed_config(config)
+    if report.has_errors:
+        details = "\n".join(f"  - {issue.message}" for issue in report.issues if issue.severity == "error")
+        raise FileNotFoundError(f"Referenced output file(s) do not exist or cannot be read:\n{details}")
+
+
+def validate_parsed_config(config: LammpalyzeConfig) -> ValidationReport:
+    """Inspect an already parsed config without loading full datasets."""
+
+    issues: list[ValidationIssue] = []
+    _check_element_list(config, issues)
     _check_missing_files(config, issues)
     _check_simulation_index_consistency(config, issues)
     _check_atom_types(config, issues)
@@ -64,6 +79,18 @@ def format_validation_report(report: ValidationReport) -> str:
     for issue in report.issues:
         lines.append(f"{issue.severity.upper()}: {issue.message}")
     return "\n".join(lines)
+
+
+def _check_element_list(config: LammpalyzeConfig, issues: list[ValidationIssue]) -> None:
+    """Report an empty atom-type mapping."""
+
+    if not config.element_list:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "element_list is empty. Add for example: element_list = [\"C\", \"H\", \"O\"]",
+            )
+        )
 
 
 def _check_missing_files(config: LammpalyzeConfig, issues: list[ValidationIssue]) -> None:

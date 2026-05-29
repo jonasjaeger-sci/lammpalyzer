@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from lammpalyze.config import parse_input_file
+from lammpalyze.validation import validate_config
 
 
 def test_parse_input_file_groups_simulations(tmp_path: Path):
@@ -52,5 +53,7 @@ def test_parse_input_file_reports_missing_referenced_files(tmp_path: Path):
         encoding="utf-8",
     )
 
-    with pytest.raises(FileNotFoundError, match="simulation 1 species"):
-        parse_input_file(input_file)
+    config = parse_input_file(input_file)
+
+    with pytest.raises(FileNotFoundError, match="Simulation 1 species"):
+        validate_config(config)

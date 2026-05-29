@@ -12,7 +12,7 @@ import pandas as pd
 
 from lammpalyze.config import LammpalyzeConfig
 from lammpalyze.parsers import eval_species, eval_thermo, parse_bonds, parse_traj
-from lammpalyze.reactions import ReactionOccurrence, ReactionPath, count_reaction_paths, find_reaction_occurrences
+from lammpalyze.reactions import ReactionOccurrence, ReactionPath, build_reaction_path_table, find_reaction_occurrences
 
 LOGGER = logging.getLogger(__name__)
 ProgressCallback = Callable[[int, int, str], None]
@@ -74,21 +74,7 @@ class LammpalyzeProject:
     def reaction_path_table(self) -> tuple[list[int], list[ReactionPath], dict[str, dict[int, int]]]:
         """Prepare reaction counts in the same shape used by the GUI table."""
 
-        simulation_indices = []
-        counts_by_reaction: dict[str, dict[int, int]] = {}
-        all_paths: dict[str, int] = {}
-        for simulation in self.simulations:
-            if simulation.smiles is None or simulation.smiles_id is None:
-                continue
-            simulation_indices.append(simulation.index)
-            for path in count_reaction_paths(simulation.smiles, simulation.smiles_id):
-                counts_by_reaction.setdefault(path.reaction, {})[simulation.index] = path.count
-                all_paths[path.reaction] = all_paths.get(path.reaction, 0) + path.count
-        paths = [
-            ReactionPath(reaction, count)
-            for reaction, count in sorted(all_paths.items(), key=lambda item: item[1], reverse=True)
-        ]
-        return simulation_indices, paths, counts_by_reaction
+        return build_reaction_path_table(self.simulations)
 
     def first_reaction_occurrence(self, reaction: str) -> tuple[LoadedSimulation, ReactionOccurrence]:
         """Find a concrete event for a reaction path, scanning runs in order."""
