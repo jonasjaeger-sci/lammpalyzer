@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +13,9 @@ import pandas as pd
 from lammpalyze.config import LammpalyzeConfig
 from lammpalyze.parsers import eval_species, eval_thermo, parse_bonds, parse_traj
 from lammpalyze.reactions import ReactionOccurrence, ReactionPath, count_reaction_paths, find_reaction_occurrences
+
+LOGGER = logging.getLogger(__name__)
+ProgressCallback = Callable[[int, int, str], None]
 
 
 @dataclass
@@ -111,11 +116,19 @@ class LammpalyzeProject:
         raise KeyError(f"Simulation {index} was not loaded.")
 
 
-def load_project(config: LammpalyzeConfig) -> LammpalyzeProject:
+def load_project(
+    config: LammpalyzeConfig,
+    progress_callback: ProgressCallback | None = None,
+) -> LammpalyzeProject:
     """Load all simulation data referenced in ``config``."""
 
     simulations: list[LoadedSimulation] = []
-    for files in config.simulations:
+    total = len(config.simulations)
+    for position, files in enumerate(config.simulations, start=1):
+        if progress_callback is not None:
+            progress_callback(position - 1, total, f"Loading simulation {files.index}")
+        LOGGER.info("Loading simulation %s", files.index)
+
         loaded = LoadedSimulation(index=files.index)
         loaded.bond_path = files.bond
         loaded.trajectory_path = files.trajectory
@@ -140,6 +153,8 @@ def load_project(config: LammpalyzeConfig) -> LammpalyzeProject:
             loaded.chem_formulas = chem_formulas
 
         simulations.append(loaded)
+        if progress_callback is not None:
+            progress_callback(position, total, f"Loaded simulation {files.index}")
 
     return LammpalyzeProject(config=config, simulations=simulations)
 

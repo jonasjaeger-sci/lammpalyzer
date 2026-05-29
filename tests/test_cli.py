@@ -27,10 +27,11 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
         calls["input_path"] = input_path
         return config
 
-    def fake_load_project(loaded_config):
+    def fake_load_project(loaded_config, progress_callback=None):
         """Record the loaded config and return a fake project."""
 
         calls["config"] = loaded_config
+        calls["progress_callback"] = progress_callback
         return project
 
     def fake_write_reaction_paths_csv(written_paths, target_path, **kwargs):
@@ -51,6 +52,7 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
     assert calls == {
         "input_path": "lmplyz.inp",
         "config": config,
+        "progress_callback": calls["progress_callback"],
         "paths": paths,
         "target_path": output_path,
         "writer_kwargs": {
@@ -106,3 +108,14 @@ def test_lammpalyze_example_cli_writes_expected_paths(tmp_path: Path):
     assert table[0] == ["Reaction", "Simulation 1", "Simulation 2", "Sum"]
     assert len(table[1:]) == 388
     assert all(int(row[1]) + int(row[2]) == int(row[3]) for row in table[1:])
+
+
+def test_progress_bar_writes_to_stderr(capsys):
+    """The CLI progress bar is intentionally small and terminal-friendly."""
+
+    progress = cli._ProgressBar(enabled=True, width=4)
+
+    progress.update(1, 2, "Loaded simulation 1")
+    progress.update(2, 2, "Loaded simulation 2")
+
+    assert "[##--] 1/2 Loaded simulation 1" in capsys.readouterr().err
