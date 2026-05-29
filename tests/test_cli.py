@@ -1,5 +1,6 @@
 """Tests for the command-line entry point."""
 
+import csv
 import subprocess
 import sys
 from pathlib import Path
@@ -12,10 +13,13 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
     """Load a project, write paths, and skip GUI startup when requested."""
 
     calls = {}
-    config = SimpleNamespace(name="config")
+    config = SimpleNamespace(name="config", input_file=tmp_path / "lmplyz.inp")
     paths = [SimpleNamespace(reaction="A -> B", count=2)]
-    project = SimpleNamespace(simulations=[object(), object()], reaction_paths=lambda: paths)
-    output_path = tmp_path / "paths.out"
+    project = SimpleNamespace(
+        simulations=[object(), object()],
+        reaction_path_table=lambda: ([1, 2], paths, {"A -> B": {1: 2, 2: 0}}),
+    )
+    output_path = tmp_path / "paths.csv"
 
     def fake_parse_input_file(input_path):
         """Record the requested input path and return a fake config."""
@@ -29,16 +33,17 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
         calls["config"] = loaded_config
         return project
 
-    def fake_write_reaction_paths(written_paths, target_path):
-        """Record reaction-path write arguments and return the target path."""
+    def fake_write_reaction_paths_csv(written_paths, target_path, **kwargs):
+        """Record CSV writer arguments and return the requested path."""
 
         calls["paths"] = written_paths
         calls["target_path"] = target_path
+        calls["writer_kwargs"] = kwargs
         return target_path
 
     monkeypatch.setattr(cli, "parse_input_file", fake_parse_input_file)
     monkeypatch.setattr(cli, "load_project", fake_load_project)
-    monkeypatch.setattr(cli, "write_reaction_paths", fake_write_reaction_paths)
+    monkeypatch.setattr(cli, "write_reaction_paths_csv", fake_write_reaction_paths_csv)
 
     exit_code = cli.main(["-i", "lmplyz.inp", "--no-gui", "-o", str(output_path)])
 
@@ -48,6 +53,16 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
         "config": config,
         "paths": paths,
         "target_path": output_path,
+        "writer_kwargs": {
+            "simulation_indices": [1, 2],
+            "counts_by_reaction": {"A -> B": {1: 2, 2: 0}},
+            "metadata": {
+                "input_file": config.input_file,
+                "run_date": calls["writer_kwargs"]["metadata"]["run_date"],
+                "simulation_ids": [1, 2],
+                "software_version": cli.VERSION,
+            },
+        },
     }
 
 
@@ -56,7 +71,7 @@ def test_lammpalyze_example_cli_writes_expected_paths(tmp_path: Path):
 
     repo_root = Path(__file__).resolve().parents[1]
     example_dir = repo_root / "examples" / "example_NVT_vs_NPT"
-    output_path = tmp_path / "paths.out"
+    output_path = tmp_path / "paths.csv"
 
     result = subprocess.run(
         [
@@ -79,6 +94,15 @@ def test_lammpalyze_example_cli_writes_expected_paths(tmp_path: Path):
     assert "Loaded 2 simulation(s)." in result.stdout
     assert "Wrote 388 reaction path(s)" in result.stdout
     assert b"\r\n" not in output_path.read_bytes()
-    assert output_path.read_text(encoding="utf-8").splitlines() == (
-        example_dir / "paths.out"
-    ).read_text(encoding="utf-8").splitlines()
+
+    rows = list(csv.reader(output_path.open(encoding="utf-8", newline="")))
+    metadata = dict(rows[1:5])
+    assert rows[0] == ["Metadata", "Value"]
+    assert metadata["input_file"] == str((example_dir / "lmplyz.inp").resolve())
+    assert metadata["simulation_ids"] == "1;2"
+    assert metadata["software_version"] == cli.VERSION
+
+    table = rows[6:]
+    assert table[0] == ["Reaction", "Simulation 1", "Simulation 2", "Sum"]
+    assert len(table[1:]) == 388
+    assert all(int(row[1]) + int(row[2]) == int(row[3]) for row in table[1:])

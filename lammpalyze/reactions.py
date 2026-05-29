@@ -1,4 +1,4 @@
-"""Reaction-path extraction and occurrence counting."""
+"""Reaction path extraction, counting, and export helpers."""
 
 from __future__ import annotations
 
@@ -6,13 +6,14 @@ import csv
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 from lammpalyze.parsers import map_atoms_to_mols
 
 
 @dataclass(frozen=True)
 class ReactionPath:
-    """A counted reaction path in SMILES notation."""
+    """Counted reaction path, stored in the SMILES notation used by the parser."""
 
     reaction: str
     count: int
@@ -20,7 +21,7 @@ class ReactionPath:
 
 @dataclass(frozen=True)
 class ReactionOccurrence:
-    """One concrete occurrence of a reaction path."""
+    """Concrete reaction event with enough atom metadata for visualization."""
 
     reaction: str
     timestep_reactants: int
@@ -33,7 +34,7 @@ class ReactionOccurrence:
 
 
 class UnionFindReax:
-    """Union-find helper for grouping reactants and products across timesteps."""
+    """Small disjoint-set helper for matching reactants to products."""
 
     def __init__(self) -> None:
         """Initialize an empty disjoint-set forest."""
@@ -172,15 +173,44 @@ def find_reaction_occurrences(
     return occurrences
 
 
-def write_reaction_paths(paths: list[ReactionPath], output_file: str | Path = "paths.out") -> Path:
-    """Write counted reaction paths to a tab-separated table."""
+def write_reaction_paths(paths: list[ReactionPath], output_file: str | Path = "paths.csv") -> Path:
+    """Compatibility wrapper for writing the total reaction-path CSV."""
+
+    return write_reaction_paths_csv(paths, output_file)
+
+
+def write_reaction_paths_csv(
+    paths: list[ReactionPath],
+    output_file: str | Path = "paths.csv",
+    *,
+    simulation_indices: list[int] | None = None,
+    counts_by_reaction: Mapping[str, Mapping[int, int]] | None = None,
+    metadata: Mapping[str, object] | None = None,
+) -> Path:
+    """Write reaction paths as CSV with optional metadata and per-run counts."""
 
     output_path = Path(output_file)
     with output_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
-        writer.writerow(["Reaction", "Count"])
+        writer = csv.writer(handle, lineterminator="\n")
+        if metadata:
+            writer.writerow(["Metadata", "Value"])
+            for key, value in metadata.items():
+                writer.writerow([key, _metadata_value(value)])
+            writer.writerow([])
+
+        simulation_indices = simulation_indices or []
+        counts_by_reaction = counts_by_reaction or {}
+        simulation_columns = [f"Simulation {index}" for index in simulation_indices]
+        writer.writerow(["Reaction", *simulation_columns, "Sum"])
         for path in paths:
-            writer.writerow([path.reaction, path.count])
+            per_simulation = counts_by_reaction.get(path.reaction, {})
+            writer.writerow(
+                [
+                    path.reaction,
+                    *(per_simulation.get(index, 0) for index in simulation_indices),
+                    path.count,
+                ]
+            )
     return output_path
 
 
@@ -188,6 +218,14 @@ def _format_reaction(reactants: list[str], products: list[str]) -> str:
     """Format sorted reactant and product SMILES lists as a path string."""
 
     return f"{reactants} -> {products}"
+
+
+def _metadata_value(value: object) -> str:
+    """Render metadata values without leaking Python container syntax into CSV."""
+
+    if isinstance(value, (list, tuple, set)):
+        return ";".join(str(item) for item in value)
+    return str(value)
 
 
 def _iter_reactions(smiles: dict[int, list[str]], smiles_id: dict[int, list[list[str]]]):

@@ -1,4 +1,4 @@
-"""High-level project loading and numerical analysis."""
+"""Project loading and shared analysis routines."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from lammpalyze.reactions import ReactionOccurrence, ReactionPath, count_reactio
 
 @dataclass
 class LoadedSimulation:
-    """Parsed data for one simulation run."""
+    """Parsed data gathered for one simulation run."""
 
     index: int
     species: list[str] | None = None
@@ -55,24 +55,35 @@ class LoadedSimulation:
 
 @dataclass
 class LammpalyzeProject:
-    """A loaded lammpalyze project containing one or more simulations."""
+    """Loaded lammpalyze project, usually made from one input file."""
 
     config: LammpalyzeConfig
     simulations: list[LoadedSimulation]
 
     def reaction_paths(self) -> list[ReactionPath]:
-        """Return counted reaction paths across all simulations."""
+        """Return total reaction-path counts across all simulations."""
 
+        _, paths, _ = self.reaction_path_table()
+        return paths
+
+    def reaction_path_table(self) -> tuple[list[int], list[ReactionPath], dict[str, dict[int, int]]]:
+        """Build the GUI-style reaction table data for exports and views."""
+
+        simulation_indices = []
+        counts_by_reaction: dict[str, dict[int, int]] = {}
         all_paths: dict[str, int] = {}
         for simulation in self.simulations:
             if simulation.smiles is None or simulation.smiles_id is None:
                 continue
+            simulation_indices.append(simulation.index)
             for path in count_reaction_paths(simulation.smiles, simulation.smiles_id):
+                counts_by_reaction.setdefault(path.reaction, {})[simulation.index] = path.count
                 all_paths[path.reaction] = all_paths.get(path.reaction, 0) + path.count
-        return [
+        paths = [
             ReactionPath(reaction, count)
             for reaction, count in sorted(all_paths.items(), key=lambda item: item[1], reverse=True)
         ]
+        return simulation_indices, paths, counts_by_reaction
 
     def first_reaction_occurrence(self, reaction: str) -> tuple[LoadedSimulation, ReactionOccurrence]:
         """Return the first concrete occurrence matching ``reaction``."""

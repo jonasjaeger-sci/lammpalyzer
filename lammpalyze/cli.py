@@ -11,7 +11,7 @@ from pathlib import Path
 from lammpalyze.analysis import load_project
 from lammpalyze.config import parse_input_file
 from lammpalyze.info import LOGO, PROGRAM_NAME, VERSION
-from lammpalyze.reactions import write_reaction_paths
+from lammpalyze.reactions import write_reaction_paths_csv
 
 _DATE_FMT = "%d.%m.%Y %H:%M:%S"
 
@@ -24,8 +24,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-o",
         "--output",
-        default="paths.out",
-        help="Reaction path output file. Default: paths.out",
+        default="paths.csv",
+        help="Reaction path CSV output file. Default: paths.csv",
     )
     gui_group = parser.add_mutually_exclusive_group()
     gui_group.add_argument("--gui", action="store_true", help="Open the graphical interface after loading data.")
@@ -61,8 +61,19 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = parse_input_file(args.input)
         project = load_project(config)
-        paths = project.reaction_paths()
-        output_path = write_reaction_paths(paths, Path(args.output))
+        simulation_indices, paths, counts_by_reaction = project.reaction_path_table()
+        output_path = write_reaction_paths_csv(
+            paths,
+            Path(args.output),
+            simulation_indices=simulation_indices,
+            counts_by_reaction=counts_by_reaction,
+            metadata={
+                "input_file": config.input_file,
+                "run_date": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+                "simulation_ids": simulation_indices,
+                "software_version": VERSION,
+            },
+        )
         print(f"Loaded {len(project.simulations)} simulation(s).")
         print(f"Wrote {len(paths)} reaction path(s) to {output_path}.")
 
