@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, messagebox, ttk
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+from lammpalyze.gui.helpers import IMAGE_FILETYPES, image_output_path, suffixed_image_output_path
 
 
 class CanvasMixin:
@@ -31,6 +33,61 @@ class CanvasMixin:
             canvas.get_tk_widget().destroy()
         except tk.TclError:
             pass
+
+    def _ask_image_output_path(self, title: str, initialfile: str, filetypes=IMAGE_FILETYPES) -> str:
+        """Ask the user where an image should be saved."""
+
+        return filedialog.asksaveasfilename(
+            title=title,
+            initialfile=initialfile,
+            defaultextension=".png",
+            filetypes=filetypes,
+        )
+
+    def _save_canvas_figure(self, canvas: FigureCanvasTkAgg | None, title: str, initialfile: str) -> None:
+        """Save one displayed Matplotlib canvas to an image file."""
+
+        if canvas is None:
+            messagebox.showerror("Save failed", "Generate a plot before saving.")
+            return
+
+        filename = self._ask_image_output_path(title, initialfile)
+        if not filename:
+            return
+        output_path = image_output_path(filename)
+        canvas.figure.savefig(output_path, bbox_inches="tight")
+        messagebox.showinfo("Plot saved", f"Saved plot to {output_path}")
+
+    def _save_canvas_figures(
+        self,
+        canvases: list[FigureCanvasTkAgg],
+        title: str,
+        initialfile: str,
+        suffixes: list[str],
+    ) -> None:
+        """Save multiple displayed Matplotlib canvases using one chosen base name."""
+
+        if not canvases:
+            messagebox.showerror("Save failed", "Generate a plot before saving.")
+            return
+
+        filename = self._ask_image_output_path(title, initialfile)
+        if not filename:
+            return
+
+        if len(canvases) == 1:
+            output_paths = [image_output_path(filename)]
+        else:
+            output_paths = [
+                suffixed_image_output_path(
+                    filename,
+                    suffixes[index] if index < len(suffixes) else f"plot_{index + 1}",
+                )
+                for index in range(len(canvases))
+            ]
+        for canvas, output_path in zip(canvases, output_paths, strict=False):
+            canvas.figure.savefig(output_path, bbox_inches="tight")
+        messagebox.showinfo("Plots saved", "Saved plot files:\n" + "\n".join(str(path) for path in output_paths))
 
     def _bind_thermo_mousewheel(self, _event) -> None:
         """Bind global mouse-wheel scrolling while the pointer is over thermo plots."""

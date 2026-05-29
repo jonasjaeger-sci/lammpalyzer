@@ -66,6 +66,7 @@ class RdfTabMixin:
         ttk.Label(controls, text="Bin width").pack(anchor="w")
         ttk.Entry(controls, textvariable=self.rdf_bin_width).pack(fill="x", pady=(0, 12))
         ttk.Button(controls, text="Plot", command=self._plot_rdf).pack(fill="x")
+        ttk.Button(controls, text="Save plot", command=self._save_rdf_plot).pack(fill="x", pady=(8, 0))
 
         self.rdf_status = ttk.Label(plot_area, text="", wraplength=620, justify="left")
         self.rdf_status.pack(anchor="nw", padx=8, pady=8)
@@ -98,6 +99,11 @@ class RdfTabMixin:
             )
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("RDF plotting failed", str(exc))
+
+    def _save_rdf_plot(self) -> None:
+        """Save the current RDF plot to an image file."""
+
+        self._save_canvas_figure(self._rdf_canvas, "Save RDF plot", "radial_distribution.png")
 
     def _selected_rdf_simulations(self):
         """Return trajectory-capable simulations selected in the RDF listbox."""

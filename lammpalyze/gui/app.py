@@ -45,6 +45,7 @@ class LammpalyzeGUI(
         self._rdf_timesteps_by_simulation: dict[int, list[int]] = {}
         self._molecule_photo = None
         self._molecule_smiles: str | None = None
+        self._molecule_image_size: tuple[int, int] | None = None
         self._molecule_resize_job: str | None = None
         self._closed = False
         self._build()
@@ -108,8 +109,9 @@ class LammpalyzeGUI(
 
         if self._molecule_resize_job is not None:
             self.root.after_cancel(self._molecule_resize_job)
-            self._molecule_resize_job = None
+        self._molecule_resize_job = None
         self._molecule_smiles = None
+        self._molecule_image_size = None
         self._molecule_photo = None
         plt.close("all")
 

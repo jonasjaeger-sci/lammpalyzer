@@ -1,7 +1,7 @@
 """Program metadata displayed by the command-line interface."""
 
 PROGRAM_NAME = "lammpalyze"
-VERSION = "0.1.0"
+VERSION = "1.1.0"
 __version__ = VERSION
 
 LOGO = r"""

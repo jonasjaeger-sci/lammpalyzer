@@ -5,8 +5,13 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from lammpalyze.gui.helpers import MOLECULE_RESIZE_DEBOUNCE_MS, molecule_render_size
-from lammpalyze.smiles import formulas_for_simulation, molecule_photo_image, smiles_for_formula
+from lammpalyze.gui.helpers import (
+    MOLECULE_RESIZE_DEBOUNCE_MS,
+    RASTER_IMAGE_FILETYPES,
+    image_output_path,
+    molecule_render_size,
+)
+from lammpalyze.smiles import formulas_for_simulation, molecule_image, molecule_photo_image, smiles_for_formula
 
 
 class MoleculeTabMixin:
@@ -45,6 +50,7 @@ class MoleculeTabMixin:
         self.smiles_combo.pack(fill="x", pady=(0, 12))
 
         ttk.Button(controls, text="Generate", command=self._generate_molecule).pack(fill="x")
+        ttk.Button(controls, text="Save image", command=self._save_molecule_image).pack(fill="x", pady=(8, 0))
 
         self.molecule_label = ttk.Label(output, anchor="center")
         self.molecule_label.pack(fill="both", expand=True)
@@ -83,8 +89,31 @@ class MoleculeTabMixin:
             self.molecule_label.winfo_width(),
             self.molecule_label.winfo_height(),
         )
+        self._molecule_image_size = image_size
         self._molecule_photo = molecule_photo_image(self._molecule_smiles, size=image_size)
         self.molecule_label.configure(image=self._molecule_photo)
+
+    def _save_molecule_image(self) -> None:
+        """Save the current molecule rendering to an image file."""
+
+        if not self._molecule_smiles:
+            messagebox.showerror("Save failed", "Generate a molecule image before saving.")
+            return
+
+        filename = self._ask_image_output_path(
+            "Save molecule image",
+            "molecule_visualization.png",
+            filetypes=RASTER_IMAGE_FILETYPES,
+        )
+        if not filename:
+            return
+        output_path = image_output_path(filename)
+        image_size = self._molecule_image_size or molecule_render_size(
+            self.molecule_label.winfo_width(),
+            self.molecule_label.winfo_height(),
+        )
+        molecule_image(self._molecule_smiles, size=image_size).save(output_path)
+        messagebox.showinfo("Image saved", f"Saved image to {output_path}")
 
     def _refresh_formula_options(self) -> None:
         """Refresh formula options for the selected SMILES simulation."""

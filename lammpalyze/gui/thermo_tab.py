@@ -142,6 +142,7 @@ class ThermoTabMixin:
         self._update_thermo_step_controls(preserve=False)
         self._update_thermo_y_controls(preserve=False)
         ttk.Button(controls, text="Plot", command=self._plot_thermo).pack(fill="x")
+        ttk.Button(controls, text="Save plots", command=self._save_thermo_plots).pack(fill="x", pady=(8, 0))
 
     def _plot_thermo(self) -> None:
         """Plot the selected thermo parameter for selected simulations."""
@@ -172,6 +173,18 @@ class ThermoTabMixin:
             self._thermo_scroll_canvas.yview_moveto(0)
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("Thermo plotting failed", str(exc))
+
+    def _save_thermo_plots(self) -> None:
+        """Save the current thermodynamic plots to image files."""
+
+        parameter = self.thermo_parameter.get() or "thermo"
+        initialfile = f"thermodynamic_data_{parameter}.png"
+        self._save_canvas_figures(
+            self._thermo_canvases,
+            "Save thermodynamic plots",
+            initialfile,
+            ["selected_simulations", "average"],
+        )
 
     def _selected_thermo_simulations(self):
         """Return thermo-capable simulations selected in the thermo listbox."""

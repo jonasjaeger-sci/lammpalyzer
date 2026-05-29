@@ -51,6 +51,7 @@ class SpeciesTabMixin:
         )
         self.species_toggle_button.pack(fill="x", pady=(0, 8))
         ttk.Button(controls, text="Plot", command=self._plot_species).pack(fill="x")
+        ttk.Button(controls, text="Save plot", command=self._save_species_plot).pack(fill="x", pady=(8, 0))
         self._update_species_toggle_label()
 
     def _plot_species(self) -> None:
@@ -65,6 +66,11 @@ class SpeciesTabMixin:
             self._replace_canvas("_species_canvas", self._species_plot_area, figure)
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("Species plotting failed", str(exc))
+
+    def _save_species_plot(self) -> None:
+        """Save the current species plot to an image file."""
+
+        self._save_canvas_figure(self._species_canvas, "Save species plot", "species_analysis.png")
 
     def _selected_species_simulations(self):
         """Return species-capable simulations selected in the species listbox."""
