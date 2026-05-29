@@ -1,5 +1,7 @@
 """Tests for the command-line entry point."""
 
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -47,3 +49,33 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
         "paths": paths,
         "target_path": output_path,
     }
+
+
+def test_lammpalyze_example_cli_writes_expected_paths(tmp_path: Path):
+    """Run an example through the CLI and assert the generated paths file."""
+
+    repo_root = Path(__file__).resolve().parents[1]
+    example_dir = repo_root / "examples" / "example_NVT_vs_NPT"
+    output_path = tmp_path / "paths.out"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "lammpalyze.cli",
+            "-i",
+            str(example_dir / "lmplyz.inp"),
+            "--no-gui",
+            "-o",
+            str(output_path),
+        ],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Loaded 2 simulation(s)." in result.stdout
+    assert "Wrote 388 reaction path(s)" in result.stdout
+    assert output_path.read_bytes() == (example_dir / "paths.out").read_bytes()
