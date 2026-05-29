@@ -31,6 +31,13 @@ lammpalyze = "lammpalyze.cli:main"
 [tool.setuptools.packages.find]
 include = ["lammpalyze*"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.pydocstyle]
+add-ignore = "D202"
+
 [tool.pylint.main]
 persistent = false
 

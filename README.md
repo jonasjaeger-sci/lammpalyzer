@@ -202,8 +202,9 @@ python -m pylint lammpalyze
 ```
 
 The `lammpalyze` and `tests` arguments mean the checks cover both package
-source code and tests. `pycodestyle` and `pydocstyle` read their settings from
-`setup.cfg`; `pylint` reads its project settings from `pyproject.toml`.
+source code and tests. `pycodestyle` reads its line-length setting from
+`setup.cfg`; `pytest`, `pydocstyle`, and `pylint` read their project settings
+from `pyproject.toml`.
 
 ## Package Layout
 
