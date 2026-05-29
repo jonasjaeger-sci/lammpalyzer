@@ -13,6 +13,7 @@ from lammpalyze.analysis import load_project
 from lammpalyze.config import parse_input_file
 from lammpalyze.info import LOGO, PROGRAM_NAME, VERSION
 from lammpalyze.reactions import write_reaction_paths_csv
+from lammpalyze.validation import format_validation_report, validate_input_file
 
 _DATE_FMT = "%d.%m.%Y %H:%M:%S"
 LOGGER = logging.getLogger(__name__)
@@ -22,7 +23,14 @@ def build_parser() -> argparse.ArgumentParser:
     """Create the parser used by both the console script and tests."""
 
     parser = argparse.ArgumentParser(description="Analyze LAMMPS/ReaxFF output files.")
-    parser.add_argument("-i", "--input", required=True, help="Path to lammpalyze input file.")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("analyze", "validate"),
+        default="analyze",
+        help="Command to run. Default: analyze",
+    )
+    parser.add_argument("-i", "--input", help="Path to lammpalyze input file.")
     parser.add_argument(
         "-o",
         "--output",
@@ -61,7 +69,13 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.input is None:
+        parser.error("the following arguments are required: -i/--input")
     _configure_logging(args.verbose, args.debug, args.quiet)
+
+    if args.command == "validate":
+        return _run_validate(args.input)
+
     hello_world()
 
     try:
@@ -101,6 +115,14 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         bye_world()
     return exit_code
+
+
+def _run_validate(input_file: str) -> int:
+    """Run the preflight validator and print a compact report."""
+
+    report = validate_input_file(input_file)
+    print(format_validation_report(report))
+    return 1 if report.has_errors else 0
 
 
 def _should_launch_gui(force_gui: bool, no_gui: bool) -> bool:

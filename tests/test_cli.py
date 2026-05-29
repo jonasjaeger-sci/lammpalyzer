@@ -119,3 +119,72 @@ def test_progress_bar_writes_to_stderr(capsys):
     progress.update(2, 2, "Loaded simulation 2")
 
     assert "[##--] 1/2 Loaded simulation 1" in capsys.readouterr().err
+
+
+def test_validate_command_reports_clean_input(tmp_path: Path, capsys):
+    """Validate a minimal project without running the expensive parsers."""
+
+    (tmp_path / "traj.lammpstrj").write_text(
+        """ITEM: TIMESTEP
+0
+ITEM: NUMBER OF ATOMS
+1
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ATOMS id type x y z
+1 1 0.0 0.0 0.0
+""",
+        encoding="utf-8",
+    )
+    input_file = tmp_path / "lmplyz.inp"
+    input_file.write_text(
+        """
+        element_list = ["C"]
+        TrajF1 = traj.lammpstrj
+        """,
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(["validate", "-i", str(input_file)])
+
+    assert exit_code == 0
+    assert "OK: Input file passed validation checks." in capsys.readouterr().out
+
+
+def test_validate_command_reports_preflight_errors(tmp_path: Path, capsys):
+    """Surface common input problems before full analysis begins."""
+
+    (tmp_path / "bad_traj.lammpstrj").write_text(
+        """ITEM: TIMESTEP
+0
+ITEM: NUMBER OF ATOMS
+1
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ATOMS id type vx vy vz
+1 3 0.0 0.0 0.0
+""",
+        encoding="utf-8",
+    )
+    input_file = tmp_path / "lmplyz.inp"
+    input_file.write_text(
+        """
+        element_list = ["C", "H"]
+        BF1 = missing_bonds.reax
+        TrajF2 = bad_traj.lammpstrj
+        """,
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(["validate", "-i", str(input_file)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "ERROR: Simulation 1 bond file is missing" in output
+    assert "WARNING: Simulation 1 has bond but is missing trajectory" in output
+    assert "ERROR: simulation 2 trajectory file uses atom type(s) 3" in output
+    assert "ERROR: Simulation 2 trajectory uses unsupported atom columns" in output

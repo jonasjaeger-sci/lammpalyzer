@@ -122,6 +122,17 @@ lammpalyze -i lmplyz.inp --gui
 lammpalyze -i lmplyz.inp -o reaction_paths.csv
 ```
 
+Before running a full analysis, validate the input file and the first readable
+parts of the referenced outputs:
+
+```bash
+lammpalyze validate -i lmplyz.inp
+```
+
+The validator reports missing files, likely suffix/index mismatches, atom types
+not covered by `element_list`, and trajectory atom columns that lammpalyze cannot
+read.
+
 ## GUI Overview
 
 The GUI contains tabs for common analysis tasks:
