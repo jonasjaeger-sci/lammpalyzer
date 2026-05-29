@@ -68,6 +68,51 @@ The number at the end of each key groups files into simulations. For example,
 `element_list` maps LAMMPS atom types to element symbols. In the example above,
 atom type 1 is `C`, type 2 is `H`, type 3 is `Li`, and type 4 is `O`.
 
+### `lmplyz.inp` Grammar
+
+The input format is line-oriented and intended to be easy to generate from
+scripts:
+
+```ebnf
+file        = { line } ;
+line        = ws, [comment | banner | assignment], ws ;
+comment     = "#", text ;
+banner      = "---", text ;
+assignment  = key, ws, "=", ws, value, [ws, comment] ;
+
+key         = "element_list" | path_key ;
+path_key    = prefix, [label], [index] ;
+prefix      = "BF" | "BondF" | "BondFile"
+            | "SF" | "SpeciesF" | "SpeciesFile"
+            | "ThermoF" | "TF" | "ThermoFile"
+            | "TrajF" | "TrajectoryF" | "TrajectoryFile" ;
+index       = digit, { digit } ;
+label       = letter_or_underscore, { letter_or_digit_or_underscore } ;
+
+value       = python_string_list | path ;
+python_string_list = "[" string, { ",", string }, "]" ;
+path        = unquoted_path | single_quoted_path | double_quoted_path ;
+ws          = { " " | "\t" } ;
+```
+
+`element_list` is required and must be a Python-style list of strings. Path
+assignments are optional per simulation, but at least one recognized path key
+must be present. A trailing number selects the simulation index; if no trailing
+number is present, index `1` is used. For generated keys, prefer the simple
+forms `BF<N>`, `SF<N>`, `ThermoF<N>`, and `TrajF<N>`. Recognized path prefixes
+map to file types as follows:
+
+```text
+BF, BondF, BondFile                  -> ReaxFF bond file
+SF, SpeciesF, SpeciesFile            -> species file
+ThermoF, TF, ThermoFile              -> thermodynamic log file
+TrajF, TrajectoryF, TrajectoryFile   -> trajectory file
+```
+
+Unknown assignments are ignored. Repeated keys overwrite earlier values.
+Comments start at `#`, so generated paths should not contain `#` characters.
+Relative paths are resolved relative to the directory containing `lmplyz.inp`.
+
 ## Running
 
 Run the package with:
