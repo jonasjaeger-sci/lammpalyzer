@@ -1,4 +1,4 @@
-"""Command-line entry point for lammpalyze."""
+"""Command-line interface for loading projects and exporting reaction paths."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the lammpalyze argument parser."""
+    """Create the parser used by both the console script and tests."""
 
     parser = argparse.ArgumentParser(description="Analyze LAMMPS/ReaxFF output files.")
     parser.add_argument("-i", "--input", required=True, help="Path to lammpalyze input file.")
@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def hello_world() -> None:
-    """Print program banner and startup metadata."""
+    """Print the startup banner used by the original command-line workflow."""
 
     timestart = datetime.datetime.now().strftime(_DATE_FMT)
     pyversion = sys.version.split()[0]
@@ -50,14 +50,14 @@ def hello_world() -> None:
 
 
 def bye_world() -> None:
-    """Print program shutdown timestamp."""
+    """Print the matching end-of-run timestamp."""
 
     timeend = datetime.datetime.now().strftime(_DATE_FMT)
     print(f"End of {PROGRAM_NAME} execution: {timeend}", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the lammpalyze CLI."""
+    """Execute the CLI and return a shell-friendly exit code."""
 
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _should_launch_gui(force_gui: bool, no_gui: bool) -> bool:
-    """Return whether the GUI should open for the requested CLI flags."""
+    """Decide whether this run should continue into the Tkinter interface."""
 
     if no_gui:
         return False
@@ -114,7 +114,7 @@ def _should_launch_gui(force_gui: bool, no_gui: bool) -> bool:
 
 
 def _configure_logging(verbose: bool, debug: bool, quiet: bool) -> None:
-    """Set CLI logging level without disturbing libraries that own logging."""
+    """Choose a practical log level for normal, verbose, and debug runs."""
 
     if quiet:
         level = logging.CRITICAL
@@ -128,20 +128,20 @@ def _configure_logging(verbose: bool, debug: bool, quiet: bool) -> None:
 
 
 def _progress_enabled(verbose: bool, quiet: bool) -> bool:
-    """Show progress in terminals, or always when verbose mode asks for it."""
+    """Use progress output only where it will not clutter redirected logs."""
 
     return not quiet and (verbose or sys.stderr.isatty())
 
 
 class _ProgressBar:
-    """Tiny stderr progress bar used while simulations are parsed."""
+    """Small stderr progress display for the simulation-loading phase."""
 
     def __init__(self, *, enabled: bool, width: int = 24) -> None:
         self.enabled = enabled
         self.width = width
 
     def update(self, current: int, total: int, message: str) -> None:
-        """Redraw the progress bar for the current loading step."""
+        """Refresh the one-line progress indicator."""
 
         if not self.enabled or total <= 0:
             return

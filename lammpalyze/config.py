@@ -1,4 +1,4 @@
-"""Configuration parsing for lammpalyze input files."""
+"""Read and validate the small ``lmplyz.inp`` project files."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ TOPIC_PREFIXES = {
 
 @dataclass(frozen=True)
 class SimulationFiles:
-    """Paths belonging to one simulation replica/run."""
+    """File paths collected for one numbered simulation entry."""
 
     index: int
     bond: Path | None = None
@@ -29,7 +29,7 @@ class SimulationFiles:
 
 @dataclass(frozen=True)
 class LammpalyzeConfig:
-    """Parsed lammpalyze input file."""
+    """Parsed input file plus the simulation groups discovered inside it."""
 
     input_file: Path
     element_list: list[str]
@@ -37,13 +37,13 @@ class LammpalyzeConfig:
 
     @property
     def type_to_element(self) -> dict[int, str]:
-        """Return the LAMMPS atom-type to element mapping."""
+        """Map LAMMPS atom type numbers onto element symbols."""
 
         return {idx + 1: element for idx, element in enumerate(self.element_list)}
 
 
 def parse_input_file(input_file: str | Path, *, validate: bool = True) -> LammpalyzeConfig:
-    """Parse a lammpalyze input file.
+    """Parse ``lmplyz.inp`` into paths grouped by simulation index.
 
     The parser accepts the current ``lmplyz.inp`` style, for example
     ``BF1 = bonds_R1.reax`` and ``element_list = ["C", "H"]``. Relative paths
@@ -83,7 +83,7 @@ def parse_input_file(input_file: str | Path, *, validate: bool = True) -> Lammpa
 
 
 def validate_config(config: LammpalyzeConfig) -> None:
-    """Validate referenced paths and required settings."""
+    """Catch missing inputs early, before the heavier parsers start work."""
 
     if not config.element_list:
         raise ValueError("element_list is empty. Add for example: element_list = [\"C\", \"H\", \"O\"]")
@@ -101,7 +101,7 @@ def validate_config(config: LammpalyzeConfig) -> None:
 
 
 def _read_assignments(path: Path) -> dict[str, str]:
-    """Read ``key = value`` assignments from a lammpalyze input file."""
+    """Extract simple ``key = value`` pairs while ignoring comments."""
 
     assignments: dict[str, str] = {}
     assignment_re = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$")
@@ -123,7 +123,7 @@ def _read_assignments(path: Path) -> dict[str, str]:
 
 
 def _parse_element_list(assignments: dict[str, str]) -> list[str]:
-    """Parse the required ``element_list`` assignment as a list of strings."""
+    """Interpret the required atom-type mapping from the assignment table."""
 
     raw_value = assignments.get("element_list")
     if raw_value is None:
@@ -140,7 +140,7 @@ def _parse_element_list(assignments: dict[str, str]) -> list[str]:
 
 
 def _group_paths(assignments: dict[str, str], base_dir: Path) -> dict[str, dict[int, Path]]:
-    """Group output-file assignments by topic and simulation index."""
+    """Sort path assignments into bond/species/thermo/trajectory buckets."""
 
     grouped: dict[str, dict[int, Path]] = {topic: {} for topic in TOPIC_PREFIXES}
 
@@ -161,7 +161,7 @@ def _group_paths(assignments: dict[str, str], base_dir: Path) -> dict[str, dict[
 
 
 def _topic_for_key(key: str) -> str | None:
-    """Return the output topic represented by an input-file assignment key."""
+    """Work out which file category a user-supplied key names."""
 
     for topic, prefixes in TOPIC_PREFIXES.items():
         if any(key.startswith(prefix) for prefix in prefixes):
@@ -170,7 +170,7 @@ def _topic_for_key(key: str) -> str | None:
 
 
 def _suffix_number(key: str) -> int:
-    """Return the trailing integer suffix from ``key``, defaulting to one."""
+    """Read the simulation number from a key such as ``BF2``."""
 
     match = re.search(r"(\d+)$", key)
     if match:
@@ -179,7 +179,7 @@ def _suffix_number(key: str) -> int:
 
 
 def _strip_quotes(value: str) -> str:
-    """Remove matching single or double quotes around an assignment value."""
+    """Allow paths to be written with or without surrounding quotes."""
 
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
         return value[1:-1]

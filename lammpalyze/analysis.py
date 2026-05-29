@@ -1,4 +1,4 @@
-"""Project loading and shared analysis routines."""
+"""Load configured LAMMPS outputs and expose project-level analysis helpers."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ ProgressCallback = Callable[[int, int, str], None]
 
 @dataclass
 class LoadedSimulation:
-    """Parsed data gathered for one simulation run."""
+    """Container for the data parsed from one replica or simulation run."""
 
     index: int
     species: list[str] | None = None
@@ -36,12 +36,12 @@ class LoadedSimulation:
 
     @property
     def has_bond_data(self) -> bool:
-        """Whether this simulation has parsed SMILES/formula data."""
+        """Check whether reaction-related bond parsing has been completed."""
 
         return self.smiles is not None and self.smiles_id is not None and self.chem_formulas is not None
 
     def iter_trajectory(self):
-        """Yield trajectory frames on demand.
+        """Stream trajectory frames from disk when a caller actually needs them.
 
         Trajectory files can be very large, so lammpalyze keeps the validated
         path in the project and streams frames instead of loading everything
@@ -53,26 +53,26 @@ class LoadedSimulation:
         return parse_traj(self.trajectory_path)
 
     def load_trajectory(self) -> list[np.ndarray]:
-        """Load all trajectory frames into memory."""
+        """Read every trajectory frame into memory for small-file workflows."""
 
         return list(self.iter_trajectory())
 
 
 @dataclass
 class LammpalyzeProject:
-    """Loaded lammpalyze project, usually made from one input file."""
+    """A loaded analysis session built from one lammpalyze input file."""
 
     config: LammpalyzeConfig
     simulations: list[LoadedSimulation]
 
     def reaction_paths(self) -> list[ReactionPath]:
-        """Return total reaction-path counts across all simulations."""
+        """Collapse the per-run reaction counts into one ranked list."""
 
         _, paths, _ = self.reaction_path_table()
         return paths
 
     def reaction_path_table(self) -> tuple[list[int], list[ReactionPath], dict[str, dict[int, int]]]:
-        """Build the GUI-style reaction table data for exports and views."""
+        """Prepare reaction counts in the same shape used by the GUI table."""
 
         simulation_indices = []
         counts_by_reaction: dict[str, dict[int, int]] = {}
@@ -91,7 +91,7 @@ class LammpalyzeProject:
         return simulation_indices, paths, counts_by_reaction
 
     def first_reaction_occurrence(self, reaction: str) -> tuple[LoadedSimulation, ReactionOccurrence]:
-        """Return the first concrete occurrence matching ``reaction``."""
+        """Find a concrete event for a reaction path, scanning runs in order."""
 
         for simulation in self.simulations:
             if simulation.smiles is None or simulation.smiles_id is None:
@@ -108,7 +108,7 @@ class LammpalyzeProject:
         raise ValueError(f"No occurrence found for reaction path: {reaction}")
 
     def simulation(self, index: int) -> LoadedSimulation:
-        """Return a loaded simulation by its input index."""
+        """Look up one loaded simulation by the index used in ``lmplyz.inp``."""
 
         for simulation in self.simulations:
             if simulation.index == index:
@@ -120,7 +120,7 @@ def load_project(
     config: LammpalyzeConfig,
     progress_callback: ProgressCallback | None = None,
 ) -> LammpalyzeProject:
-    """Load all simulation data referenced in ``config``."""
+    """Parse every file referenced by ``config`` and assemble a project object."""
 
     simulations: list[LoadedSimulation] = []
     total = len(config.simulations)
@@ -164,7 +164,7 @@ def aggregate_thermo(
     parameter: str,
     x_column: str = "Step",
 ) -> pd.DataFrame:
-    """Average a thermodynamic parameter across simulations.
+    """Align and average one thermodynamic column across compatible runs.
 
     The returned frame contains ``x_column``, ``mean``, and ``std`` columns.
     Values are aligned on the x-axis column before averaging.

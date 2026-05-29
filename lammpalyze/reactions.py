@@ -1,4 +1,4 @@
-"""Reaction path extraction, counting, and export helpers."""
+"""Reaction path clustering, counting, and CSV export utilities."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from lammpalyze.parsers import map_atoms_to_mols
 
 @dataclass(frozen=True)
 class ReactionPath:
-    """Counted reaction path, stored in the SMILES notation used by the parser."""
+    """One reaction string plus the number of times it was observed."""
 
     reaction: str
     count: int
@@ -21,7 +21,7 @@ class ReactionPath:
 
 @dataclass(frozen=True)
 class ReactionOccurrence:
-    """Concrete reaction event with enough atom metadata for visualization."""
+    """A specific reaction event, including atom ids for later visualization."""
 
     reaction: str
     timestep_reactants: int
@@ -34,15 +34,15 @@ class ReactionOccurrence:
 
 
 class UnionFindReax:
-    """Small disjoint-set helper for matching reactants to products."""
+    """Disjoint-set structure used while linking molecules across timesteps."""
 
     def __init__(self) -> None:
-        """Initialize an empty disjoint-set forest."""
+        """Start with no known reactant/product nodes."""
 
         self.root: dict[tuple[str, int], tuple[str, int]] = {}
 
     def find(self, value: tuple[str, int]) -> tuple[str, int]:
-        """Return the representative root for ``value``."""
+        """Locate the representative node, creating it if needed."""
 
         if value not in self.root:
             self.root[value] = value
@@ -51,7 +51,7 @@ class UnionFindReax:
         return self.root[value]
 
     def union(self, value1: tuple[str, int], value2: tuple[str, int]) -> None:
-        """Join two values into the same reaction cluster."""
+        """Treat two molecule indexes as part of the same reaction cluster."""
 
         root1 = self.find(value1)
         root2 = self.find(value2)
@@ -63,7 +63,7 @@ def reaction_clusters(
     mol_list_t1: list[list[int]],
     mol_list_t2: list[list[int]],
 ) -> list[dict[str, list[int]]]:
-    """Build connected reaction clusters between two consecutive timesteps."""
+    """Connect reactant and product molecule indexes for adjacent timesteps."""
 
     union_find = UnionFindReax()
     for reactant_index, products in enumerate(mol_list_t1):
@@ -89,7 +89,7 @@ def count_reaction_paths(
     smiles: dict[int, list[str]],
     smiles_id: dict[int, list[list[str]]],
 ) -> list[ReactionPath]:
-    """Count all reaction paths between consecutive timesteps.
+    """Count reaction signatures over a sequence of parsed bond frames.
 
     Atom ids are mapped to molecule indexes at ``t1`` and ``t2``, connected
     reaction clusters are found, unchanged molecule sets are ignored, and
@@ -134,7 +134,7 @@ def find_reaction_occurrences(
     first_only: bool = False,
     simulation_index: int | None = None,
 ) -> list[ReactionOccurrence]:
-    """Return concrete reaction occurrences with timestep and atom-id metadata."""
+    """List concrete events, optionally narrowed to one reaction string."""
 
     occurrences: list[ReactionOccurrence] = []
     for t1, t2, reaction in _iter_reactions(smiles, smiles_id):
@@ -173,12 +173,6 @@ def find_reaction_occurrences(
     return occurrences
 
 
-def write_reaction_paths(paths: list[ReactionPath], output_file: str | Path = "paths.csv") -> Path:
-    """Compatibility wrapper for writing the total reaction-path CSV."""
-
-    return write_reaction_paths_csv(paths, output_file)
-
-
 def write_reaction_paths_csv(
     paths: list[ReactionPath],
     output_file: str | Path = "paths.csv",
@@ -187,7 +181,7 @@ def write_reaction_paths_csv(
     counts_by_reaction: Mapping[str, Mapping[int, int]] | None = None,
     metadata: Mapping[str, object] | None = None,
 ) -> Path:
-    """Write reaction paths as CSV with optional metadata and per-run counts."""
+    """Write a reaction table CSV, including metadata when the CLI provides it."""
 
     output_path = Path(output_file)
     with output_path.open("w", encoding="utf-8", newline="") as handle:
@@ -215,13 +209,13 @@ def write_reaction_paths_csv(
 
 
 def _format_reaction(reactants: list[str], products: list[str]) -> str:
-    """Format sorted reactant and product SMILES lists as a path string."""
+    """Represent sorted reactants and products as the historical path string."""
 
     return f"{reactants} -> {products}"
 
 
 def _metadata_value(value: object) -> str:
-    """Render metadata values without leaking Python container syntax into CSV."""
+    """Convert metadata values to compact strings for the header block."""
 
     if isinstance(value, (list, tuple, set)):
         return ";".join(str(item) for item in value)
@@ -229,7 +223,7 @@ def _metadata_value(value: object) -> str:
 
 
 def _iter_reactions(smiles: dict[int, list[str]], smiles_id: dict[int, list[list[str]]]):
-    """Yield reaction clusters for each adjacent timestep pair."""
+    """Walk adjacent frames and yield the raw cluster maps used by counters."""
 
     timesteps = sorted(smiles.keys())
     for t1, t2 in zip(timesteps, timesteps[1:], strict=False):
@@ -252,7 +246,7 @@ def _iter_reactions(smiles: dict[int, list[str]], smiles_id: dict[int, list[list
 
 
 def _atom_sort_key(atom_id: str) -> tuple[int, str]:
-    """Return a stable numeric-first sort key for atom identifiers."""
+    """Sort atom ids numerically when possible, with a string fallback."""
 
     try:
         return int(atom_id), atom_id
