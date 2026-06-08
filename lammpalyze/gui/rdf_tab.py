@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from lammpalyze.analysis import LoadedSimulation
+from lammpalyze.gui.helpers import parse_reference_lines
 from lammpalyze.parsers import list_lammpstrj_timesteps
 from lammpalyze.plotting import plot_rdf
 from lammpalyze.rdf import compute_rdf
@@ -65,8 +66,38 @@ class RdfTabMixin:
         self.rdf_bin_width = tk.StringVar(value="0.1")
         ttk.Label(controls, text="Bin width").pack(anchor="w")
         ttk.Entry(controls, textvariable=self.rdf_bin_width).pack(fill="x", pady=(0, 12))
+
+        self.rdf_theme = tk.StringVar(value="Dark")
+        ttk.Label(controls, text="Background").pack(anchor="w")
+        ttk.Combobox(
+            controls,
+            textvariable=self.rdf_theme,
+            values=["Dark", "Bright"],
+            state="readonly",
+        ).pack(fill="x", pady=(0, 12))
+
+        self.rdf_gradient_enabled = tk.BooleanVar(value=False)
+        self.rdf_gradient_start = tk.StringVar(value="#f9c74f")
+        self.rdf_gradient_end = tk.StringVar(value="#7209b7")
+        ttk.Checkbutton(
+            controls,
+            text="Use gradient colors",
+            variable=self.rdf_gradient_enabled,
+        ).pack(anchor="w", pady=(0, 4))
+        ttk.Label(controls, text="Gradient start").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.rdf_gradient_start).pack(fill="x", pady=(0, 4))
+        ttk.Label(controls, text="Gradient end").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.rdf_gradient_end).pack(fill="x", pady=(0, 12))
+
+        ttk.Label(controls, text="Vertical lines").pack(anchor="w")
+        self.rdf_vertical_lines = tk.StringVar()
+        ttk.Entry(controls, textvariable=self.rdf_vertical_lines).pack(fill="x", pady=(0, 8))
+        ttk.Label(controls, text="Horizontal lines").pack(anchor="w")
+        self.rdf_horizontal_lines = tk.StringVar()
+        ttk.Entry(controls, textvariable=self.rdf_horizontal_lines).pack(fill="x", pady=(0, 12))
+
         ttk.Button(controls, text="Plot", command=self._plot_rdf).pack(fill="x")
-        ttk.Button(controls, text="Save plot", command=self._save_rdf_plot).pack(fill="x", pady=(8, 0))
+        ttk.Button(controls, text="Export PNG", command=self._save_rdf_plot).pack(fill="x", pady=(8, 0))
 
         self.rdf_status = ttk.Label(plot_area, text="", wraplength=620, justify="left")
         self.rdf_status.pack(anchor="nw", padx=8, pady=8)
@@ -88,7 +119,14 @@ class RdfTabMixin:
             bin_width = float(self.rdf_bin_width.get())
 
             results = compute_rdf(simulations, element_a, element_b, (start, end), bin_width)
-            figure = plot_rdf(results, element_a, element_b)
+            figure = plot_rdf(
+                results,
+                element_a,
+                element_b,
+                reference_lines=self._rdf_reference_lines(),
+                theme=self.rdf_theme.get(),
+                gradient_colors=self._rdf_gradient_colors(),
+            )
             self._replace_canvas("_rdf_canvas", self._rdf_plot_area, figure)
             used_timesteps = sorted({timestep for result in results for timestep in result.timesteps})
             self.rdf_status.configure(
@@ -103,12 +141,31 @@ class RdfTabMixin:
     def _save_rdf_plot(self) -> None:
         """Save the current RDF plot to an image file."""
 
-        self._save_canvas_figure(self._rdf_canvas, "Save RDF plot", "radial_distribution.png")
+        self._export_canvas_figure_png(self._rdf_canvas, "Export RDF plot", "radial_distribution.png")
 
     def _selected_rdf_simulations(self):
         """Return trajectory-capable simulations selected in the RDF listbox."""
 
         return [self._rdf_simulations[index] for index in self.rdf_sim_list.curselection()]
+
+    def _rdf_reference_lines(self) -> tuple[list[float], list[float]]:
+        """Return vertical and horizontal reference lines for the RDF plot."""
+
+        return (
+            parse_reference_lines(self.rdf_vertical_lines.get()),
+            parse_reference_lines(self.rdf_horizontal_lines.get()),
+        )
+
+    def _rdf_gradient_colors(self) -> tuple[str, str] | None:
+        """Return the optional RDF line-color gradient."""
+
+        if not self.rdf_gradient_enabled.get():
+            return None
+        start = self.rdf_gradient_start.get().strip()
+        end = self.rdf_gradient_end.get().strip()
+        if not start or not end:
+            raise ValueError("Enter both RDF gradient start and end colors.")
+        return start, end
 
     def _set_rdf_last_timesteps(self) -> None:
         """Populate RDF timestep entries with the last five selected timesteps."""

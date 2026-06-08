@@ -2,7 +2,13 @@
 
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.gui import molecule_render_size, reaction_path_table_data
-from lammpalyze.gui.helpers import image_output_path, suffixed_image_output_path
+from lammpalyze.gui.helpers import (
+    image_output_path,
+    parse_reference_lines,
+    parse_simulation_groups,
+    parse_timestep_values,
+    suffixed_image_output_path,
+)
 
 
 def test_molecule_render_size_follows_available_area():
@@ -48,3 +54,24 @@ def test_suffixed_image_output_path_preserves_extension():
 
     assert str(suffixed_image_output_path("thermo.pdf", "average")) == "thermo_average.pdf"
     assert str(suffixed_image_output_path("thermo", "selected")) == "thermo_selected.png"
+
+
+def test_parse_reference_lines_accepts_common_separators():
+    """Parse GUI reference-line entries split by commas, spaces, or semicolons."""
+
+    assert parse_reference_lines("1, 2; 3\n4") == [1.0, 2.0, 3.0, 4.0]
+    assert parse_reference_lines("  ") == []
+
+
+def test_parse_simulation_groups_accepts_semicolon_separated_groups():
+    """Parse thermo average groups while preserving group order."""
+
+    assert parse_simulation_groups("1, 3; 2 4; 4,4") == [[1, 3], [2, 4], [4]]
+    assert parse_simulation_groups("  ") == []
+
+
+def test_parse_timestep_values_accepts_common_list_syntax():
+    """Parse species timestep exclusions from common list formats."""
+
+    assert parse_timestep_values("(200, 3400); 4200") == [200, 3400, 4200]
+    assert parse_timestep_values("  ") == []

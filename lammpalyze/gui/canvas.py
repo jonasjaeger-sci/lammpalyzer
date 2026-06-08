@@ -8,7 +8,7 @@ from tkinter import filedialog, messagebox, ttk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from lammpalyze.gui.helpers import IMAGE_FILETYPES, image_output_path, suffixed_image_output_path
+from lammpalyze.gui.helpers import IMAGE_FILETYPES, PNG_FILETYPES, image_output_path, suffixed_image_output_path
 
 
 class CanvasMixin:
@@ -58,6 +58,20 @@ class CanvasMixin:
         canvas.figure.savefig(output_path, bbox_inches="tight")
         messagebox.showinfo("Plot saved", f"Saved plot to {output_path}")
 
+    def _export_canvas_figure_png(self, canvas: FigureCanvasTkAgg | None, title: str, initialfile: str) -> None:
+        """Export one displayed Matplotlib canvas to a PNG file."""
+
+        if canvas is None:
+            messagebox.showerror("Export failed", "Generate a plot before exporting.")
+            return
+
+        filename = self._ask_image_output_path(title, initialfile, filetypes=PNG_FILETYPES)
+        if not filename:
+            return
+        output_path = image_output_path(filename).with_suffix(".png")
+        canvas.figure.savefig(output_path, bbox_inches="tight", format="png")
+        messagebox.showinfo("PNG exported", f"Exported PNG to {output_path}")
+
     def _save_canvas_figures(
         self,
         canvases: list[FigureCanvasTkAgg],
@@ -88,6 +102,38 @@ class CanvasMixin:
         for canvas, output_path in zip(canvases, output_paths, strict=False):
             canvas.figure.savefig(output_path, bbox_inches="tight")
         messagebox.showinfo("Plots saved", "Saved plot files:\n" + "\n".join(str(path) for path in output_paths))
+
+    def _export_canvas_figures_png(
+        self,
+        canvases: list[FigureCanvasTkAgg],
+        title: str,
+        initialfile: str,
+        suffixes: list[str],
+    ) -> None:
+        """Export multiple displayed Matplotlib canvases as PNG files."""
+
+        if not canvases:
+            messagebox.showerror("Export failed", "Generate a plot before exporting.")
+            return
+
+        filename = self._ask_image_output_path(title, initialfile, filetypes=PNG_FILETYPES)
+        if not filename:
+            return
+
+        base_path = image_output_path(filename).with_suffix(".png")
+        if len(canvases) == 1:
+            output_paths = [base_path]
+        else:
+            output_paths = [
+                suffixed_image_output_path(
+                    str(base_path),
+                    suffixes[index] if index < len(suffixes) else f"plot_{index + 1}",
+                ).with_suffix(".png")
+                for index in range(len(canvases))
+            ]
+        for canvas, output_path in zip(canvases, output_paths, strict=False):
+            canvas.figure.savefig(output_path, bbox_inches="tight", format="png")
+        messagebox.showinfo("PNGs exported", "Exported PNG files:\n" + "\n".join(str(path) for path in output_paths))
 
     def _bind_thermo_mousewheel(self, _event) -> None:
         """Bind global mouse-wheel scrolling while the pointer is over thermo plots."""

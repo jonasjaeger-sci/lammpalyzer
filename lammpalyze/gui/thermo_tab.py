@@ -7,7 +7,7 @@ from tkinter import messagebox, ttk
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from lammpalyze.gui.helpers import THERMO_DEFAULTS
+from lammpalyze.gui.helpers import THERMO_DEFAULTS, parse_reference_lines, parse_simulation_groups
 from lammpalyze.plotting import plot_thermo
 
 
@@ -17,8 +17,41 @@ class ThermoTabMixin:
     def _build_thermo_tab(self, parent: ttk.Frame) -> None:
         """Create controls and scrollable output area for thermo plots."""
 
-        controls = ttk.Frame(parent)
-        controls.pack(side="left", fill="y", padx=8, pady=8)
+        controls_container = ttk.Frame(parent)
+        controls_container.pack(side="left", fill="y", padx=8, pady=8)
+        self._thermo_controls_canvas = tk.Canvas(controls_container, highlightthickness=0, width=260)
+        thermo_controls_scrollbar = ttk.Scrollbar(
+            controls_container,
+            orient="vertical",
+            command=self._thermo_controls_canvas.yview,
+        )
+        controls = ttk.Frame(self._thermo_controls_canvas)
+        self._thermo_controls_window = self._thermo_controls_canvas.create_window(
+            (0, 0),
+            window=controls,
+            anchor="nw",
+        )
+        self._thermo_controls_canvas.configure(yscrollcommand=thermo_controls_scrollbar.set)
+        controls.bind(
+            "<Configure>",
+            lambda _event: self._thermo_controls_canvas.configure(
+                scrollregion=self._thermo_controls_canvas.bbox("all")
+            ),
+        )
+        self._thermo_controls_canvas.bind(
+            "<Configure>",
+            lambda event: self._thermo_controls_canvas.itemconfigure(
+                self._thermo_controls_window,
+                width=event.width,
+            ),
+        )
+        self._thermo_controls_canvas.bind("<Enter>", self._bind_thermo_controls_mousewheel)
+        self._thermo_controls_canvas.bind("<Leave>", self._unbind_thermo_controls_mousewheel)
+        controls.bind("<Enter>", self._bind_thermo_controls_mousewheel)
+        controls.bind("<Leave>", self._unbind_thermo_controls_mousewheel)
+        self._thermo_controls_canvas.pack(side="left", fill="y", expand=True)
+        thermo_controls_scrollbar.pack(side="right", fill="y")
+
         plot_area = ttk.Frame(parent)
         plot_area.pack(side="right", fill="both", expand=True, padx=8, pady=8)
         self._thermo_scroll_canvas = tk.Canvas(plot_area, highlightthickness=0, background="#0b1020")
@@ -77,6 +110,13 @@ class ThermoTabMixin:
             self.thermo_label_vars[simulation.index] = label_var
             ttk.Entry(labels_frame, textvariable=label_var).pack(fill="x", pady=(0, 6))
 
+        ttk.Label(controls, text="Average groups (1,3; 2,4)").pack(anchor="w")
+        self.thermo_average_groups = tk.StringVar()
+        ttk.Entry(controls, textvariable=self.thermo_average_groups).pack(fill="x", pady=(0, 12))
+        ttk.Label(controls, text="Average labels").pack(anchor="w")
+        self.thermo_average_labels = tk.StringVar()
+        ttk.Entry(controls, textvariable=self.thermo_average_labels).pack(fill="x", pady=(0, 12))
+
         available = sorted(
             {
                 column
@@ -100,6 +140,29 @@ class ThermoTabMixin:
             lambda _event: self._update_thermo_range_controls(preserve=False),
         )
         self.thermo_parameter_combo.pack(fill="x", pady=(0, 12))
+
+        self.thermo_theme = tk.StringVar(value="Dark")
+        ttk.Label(controls, text="Background").pack(anchor="w")
+        ttk.Combobox(
+            controls,
+            textvariable=self.thermo_theme,
+            values=["Dark", "Bright"],
+            state="readonly",
+        ).pack(fill="x", pady=(0, 12))
+
+        self.thermo_gradient_enabled = tk.BooleanVar(value=False)
+        self.thermo_gradient_start = tk.StringVar(value="#f9c74f")
+        self.thermo_gradient_end = tk.StringVar(value="#7209b7")
+        ttk.Checkbutton(
+            controls,
+            text="Use gradient colors",
+            variable=self.thermo_gradient_enabled,
+        ).pack(anchor="w", pady=(0, 4))
+        ttk.Label(controls, text="Gradient start").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.thermo_gradient_start).pack(fill="x", pady=(0, 4))
+        ttk.Label(controls, text="Gradient end").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.thermo_gradient_end).pack(fill="x", pady=(0, 12))
+
         ttk.Label(controls, text="Step range").pack(anchor="w")
         self._thermo_step_bounds: tuple[float, float] | None = None
         self._updating_thermo_step_controls = False
@@ -139,10 +202,34 @@ class ThermoTabMixin:
             text="Full y range",
             command=lambda: self._update_thermo_y_controls(preserve=False),
         ).pack(fill="x", pady=(0, 12))
+
+        self.thermo_running_average_enabled = tk.BooleanVar(value=False)
+        self.thermo_running_average_points = tk.StringVar(value="10")
+        ttk.Checkbutton(
+            controls,
+            text="Running average in first plot",
+            variable=self.thermo_running_average_enabled,
+        ).pack(anchor="w", pady=(0, 4))
+        ttk.Label(controls, text="Average points").pack(anchor="w")
+        ttk.Spinbox(
+            controls,
+            from_=1,
+            to=1000000,
+            textvariable=self.thermo_running_average_points,
+            width=10,
+        ).pack(fill="x", pady=(0, 12))
+
+        ttk.Label(controls, text="Vertical lines").pack(anchor="w")
+        self.thermo_vertical_lines = tk.StringVar()
+        ttk.Entry(controls, textvariable=self.thermo_vertical_lines).pack(fill="x", pady=(0, 8))
+        ttk.Label(controls, text="Horizontal lines").pack(anchor="w")
+        self.thermo_horizontal_lines = tk.StringVar()
+        ttk.Entry(controls, textvariable=self.thermo_horizontal_lines).pack(fill="x", pady=(0, 12))
+
         self._update_thermo_step_controls(preserve=False)
         self._update_thermo_y_controls(preserve=False)
         ttk.Button(controls, text="Plot", command=self._plot_thermo).pack(fill="x")
-        ttk.Button(controls, text="Save plots", command=self._save_thermo_plots).pack(fill="x", pady=(8, 0))
+        ttk.Button(controls, text="Export PNGs", command=self._save_thermo_plots).pack(fill="x", pady=(8, 0))
 
     def _plot_thermo(self) -> None:
         """Plot the selected thermo parameter for selected simulations."""
@@ -164,6 +251,12 @@ class ThermoTabMixin:
                 legend_labels=legend_labels,
                 step_range=self._thermo_step_range(),
                 y_range=self._thermo_y_range(),
+                running_average_points=self._thermo_running_average_points(),
+                reference_lines=self._thermo_reference_lines(),
+                average_groups=self._thermo_average_groups(simulations),
+                average_group_labels=self._thermo_average_group_labels(),
+                theme=self.thermo_theme.get(),
+                gradient_colors=self._thermo_gradient_colors(),
             )
             for figure in figures:
                 canvas = FigureCanvasTkAgg(figure, master=self._thermo_plot_area)
@@ -179,9 +272,9 @@ class ThermoTabMixin:
 
         parameter = self.thermo_parameter.get() or "thermo"
         initialfile = f"thermodynamic_data_{parameter}.png"
-        self._save_canvas_figures(
+        self._export_canvas_figures_png(
             self._thermo_canvases,
-            "Save thermodynamic plots",
+            "Export thermodynamic plots",
             initialfile,
             ["selected_simulations", "average"],
         )
@@ -213,6 +306,56 @@ class ThermoTabMixin:
         if not minimum or not maximum:
             raise ValueError("Enter both y-axis minimum and maximum, or reset to the full y range.")
         return tuple(sorted((float(minimum), float(maximum))))
+
+    def _thermo_running_average_points(self) -> int | None:
+        """Return the running-average window size for the first thermo plot."""
+
+        if not self.thermo_running_average_enabled.get():
+            return None
+        points = int(self.thermo_running_average_points.get())
+        if points < 1:
+            raise ValueError("Running-average points must be at least 1.")
+        return points
+
+    def _thermo_reference_lines(self) -> tuple[list[float], list[float]]:
+        """Return vertical and horizontal reference lines for thermo plots."""
+
+        return (
+            parse_reference_lines(self.thermo_vertical_lines.get()),
+            parse_reference_lines(self.thermo_horizontal_lines.get()),
+        )
+
+    def _thermo_average_groups(self, selected_simulations) -> list[list[int]] | None:
+        """Return simulation-index groups for the thermo average plot."""
+
+        groups = parse_simulation_groups(self.thermo_average_groups.get())
+        if not groups:
+            return None
+        selected_indices = {simulation.index for simulation in selected_simulations}
+        unknown_indices = sorted({index for group in groups for index in group} - selected_indices)
+        if unknown_indices:
+            missing = ", ".join(str(index) for index in unknown_indices)
+            raise ValueError(f"Average groups include unselected simulations: {missing}.")
+        return groups
+
+    def _thermo_average_group_labels(self) -> list[str] | None:
+        """Return optional labels for thermodynamic average groups."""
+
+        labels = [label.strip() for label in self.thermo_average_labels.get().split(";")]
+        if not any(labels):
+            return None
+        return labels
+
+    def _thermo_gradient_colors(self) -> tuple[str, str] | None:
+        """Return the optional thermo line-color gradient."""
+
+        if not self.thermo_gradient_enabled.get():
+            return None
+        start = self.thermo_gradient_start.get().strip()
+        end = self.thermo_gradient_end.get().strip()
+        if not start or not end:
+            raise ValueError("Enter both gradient start and end colors.")
+        return start, end
 
     def _update_thermo_range_controls(self, preserve: bool) -> None:
         """Refresh step and y-axis range controls for the thermo tab."""
@@ -377,3 +520,28 @@ class ThermoTabMixin:
         else:
             delta = -1 * int(event.delta / 120)
         self._thermo_scroll_canvas.yview_scroll(delta, "units")
+
+    def _bind_thermo_controls_mousewheel(self, _event) -> None:
+        """Bind global mouse-wheel scrolling while the pointer is over thermo controls."""
+
+        self.root.bind_all("<MouseWheel>", self._on_thermo_controls_mousewheel)
+        self.root.bind_all("<Button-4>", self._on_thermo_controls_mousewheel)
+        self.root.bind_all("<Button-5>", self._on_thermo_controls_mousewheel)
+
+    def _unbind_thermo_controls_mousewheel(self, _event) -> None:
+        """Remove global mouse-wheel bindings for thermo controls scrolling."""
+
+        self.root.unbind_all("<MouseWheel>")
+        self.root.unbind_all("<Button-4>")
+        self.root.unbind_all("<Button-5>")
+
+    def _on_thermo_controls_mousewheel(self, event) -> None:
+        """Scroll the thermo controls canvas from mouse-wheel events."""
+
+        if getattr(event, "num", None) == 4:
+            delta = -1
+        elif getattr(event, "num", None) == 5:
+            delta = 1
+        else:
+            delta = -1 * int(event.delta / 120)
+        self._thermo_controls_canvas.yview_scroll(delta, "units")

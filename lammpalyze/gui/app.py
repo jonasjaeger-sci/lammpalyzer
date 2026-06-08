@@ -39,7 +39,7 @@ class LammpalyzeGUI(
         self.root = tk.Tk()
         self.root.title("lammpalyze")
         self.root.geometry("1100x760")
-        self._species_canvas: FigureCanvasTkAgg | None = None
+        self._species_canvases: list[FigureCanvasTkAgg] = []
         self._thermo_canvases: list[FigureCanvasTkAgg] = []
         self._rdf_canvas: FigureCanvasTkAgg | None = None
         self._rdf_timesteps_by_simulation: dict[int, list[int]] = {}
@@ -95,9 +95,9 @@ class LammpalyzeGUI(
             return
         self._closed = True
 
-        if self._species_canvas is not None:
-            self._destroy_canvas(self._species_canvas)
-            self._species_canvas = None
+        for canvas in self._species_canvases:
+            self._destroy_canvas(canvas)
+        self._species_canvases = []
 
         if self._rdf_canvas is not None:
             self._destroy_canvas(self._rdf_canvas)

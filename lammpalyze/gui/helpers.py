@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from lammpalyze.reactions import ReactionPath, build_reaction_path_table
@@ -14,6 +15,7 @@ IMAGE_FILETYPES = (
     ("JPEG image", "*.jpg"),
     ("All files", "*.*"),
 )
+PNG_FILETYPES = (("PNG image", "*.png"),)
 RASTER_IMAGE_FILETYPES = (
     ("PNG image", "*.png"),
     ("JPEG image", "*.jpg"),
@@ -24,6 +26,7 @@ MOLECULE_IMAGE_FALLBACK_SIZE = (720, 520)
 MOLECULE_IMAGE_MAX_SIZE = (1800, 1400)
 MOLECULE_RESIZE_DEBOUNCE_MS = 150
 THERMO_DEFAULTS = ["Temp", "PotEng", "KinEng", "Press", "Volume", "Density"]
+REFERENCE_LINE_SPLIT_PATTERN = re.compile(r"[\s,;]+")
 
 
 def molecule_render_size(container_width: int, container_height: int) -> tuple[int, int]:
@@ -57,3 +60,51 @@ def suffixed_image_output_path(filename: str, suffix: str) -> Path:
 
     path = image_output_path(filename)
     return path.with_name(f"{path.stem}_{suffix}{path.suffix}")
+
+
+def parse_reference_lines(value: str) -> list[float]:
+    """Parse comma-, semicolon-, or whitespace-separated reference-line values."""
+
+    stripped = value.strip()
+    if not stripped:
+        return []
+    lines = []
+    for token in REFERENCE_LINE_SPLIT_PATTERN.split(stripped):
+        if token:
+            lines.append(float(token))
+    return lines
+
+
+def parse_timestep_values(value: str) -> list[int]:
+    """Parse comma-, semicolon-, or whitespace-separated timestep values."""
+
+    stripped = re.sub(r"[()\[\]{}]", " ", value).strip()
+    if not stripped:
+        return []
+    timesteps = []
+    for token in REFERENCE_LINE_SPLIT_PATTERN.split(stripped):
+        if token:
+            timesteps.append(int(token))
+    return timesteps
+
+
+def parse_simulation_groups(value: str) -> list[list[int]]:
+    """Parse semicolon-separated simulation-index groups."""
+
+    groups = []
+    for raw_group in value.split(";"):
+        stripped = raw_group.strip()
+        if not stripped:
+            continue
+        group = []
+        seen = set()
+        for token in REFERENCE_LINE_SPLIT_PATTERN.split(stripped):
+            if not token:
+                continue
+            index = int(token)
+            if index not in seen:
+                group.append(index)
+                seen.add(index)
+        if group:
+            groups.append(group)
+    return groups

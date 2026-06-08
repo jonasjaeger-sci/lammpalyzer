@@ -22,7 +22,7 @@ def eval_species(species_file: str | Path) -> tuple[list[str], dict[str, list[in
                 species_set.update(col for col in cols if col not in static_cols)
 
     species = sorted(species_set)
-    species_dict: dict[str, list[int]] = {"Timestep": []}
+    species_dict: dict[str, list[int]] = {"Timestep": [], "No_Moles": [], "No_Specs": []}
     species_dict.update({name: [] for name in species})
 
     current_cols: list[str] | None = None
@@ -38,6 +38,8 @@ def eval_species(species_file: str | Path) -> tuple[list[str], dict[str, list[in
                 raise ValueError(f"Data row before header in species file: {species_path}")
             current_row = dict(zip(current_cols, line.split(), strict=False))
             species_dict["Timestep"].append(int(current_row["Timestep"]))
+            species_dict["No_Moles"].append(int(current_row.get("No_Moles", 0)))
+            species_dict["No_Specs"].append(int(current_row.get("No_Specs", 0)))
             for name in species:
                 species_dict[name].append(int(current_row.get(name, 0)))
 

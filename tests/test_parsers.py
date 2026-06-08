@@ -22,6 +22,8 @@ def test_eval_species_handles_changing_headers(tmp_path: Path):
     species, _, frame = eval_species(species_file)
 
     assert species == ["A", "B", "C"]
+    assert frame["No_Moles"].tolist() == [2, 2]
+    assert frame["No_Specs"].tolist() == [2, 2]
     assert frame["A"].tolist() == [1, 0]
     assert frame["B"].tolist() == [1, 0]
     assert frame["C"].tolist() == [0, 2]

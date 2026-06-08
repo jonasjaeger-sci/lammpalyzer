@@ -7,7 +7,7 @@ from tkinter import messagebox, ttk
 
 from lammpalyze.gui.helpers import (
     MOLECULE_RESIZE_DEBOUNCE_MS,
-    RASTER_IMAGE_FILETYPES,
+    PNG_FILETYPES,
     image_output_path,
     molecule_render_size,
 )
@@ -50,7 +50,7 @@ class MoleculeTabMixin:
         self.smiles_combo.pack(fill="x", pady=(0, 12))
 
         ttk.Button(controls, text="Generate", command=self._generate_molecule).pack(fill="x")
-        ttk.Button(controls, text="Save image", command=self._save_molecule_image).pack(fill="x", pady=(8, 0))
+        ttk.Button(controls, text="Export PNG", command=self._save_molecule_image).pack(fill="x", pady=(8, 0))
 
         self.molecule_label = ttk.Label(output, anchor="center")
         self.molecule_label.pack(fill="both", expand=True)
@@ -101,19 +101,19 @@ class MoleculeTabMixin:
             return
 
         filename = self._ask_image_output_path(
-            "Save molecule image",
+            "Export molecule image",
             "molecule_visualization.png",
-            filetypes=RASTER_IMAGE_FILETYPES,
+            filetypes=PNG_FILETYPES,
         )
         if not filename:
             return
-        output_path = image_output_path(filename)
+        output_path = image_output_path(filename).with_suffix(".png")
         image_size = self._molecule_image_size or molecule_render_size(
             self.molecule_label.winfo_width(),
             self.molecule_label.winfo_height(),
         )
-        molecule_image(self._molecule_smiles, size=image_size).save(output_path)
-        messagebox.showinfo("Image saved", f"Saved image to {output_path}")
+        molecule_image(self._molecule_smiles, size=image_size).save(output_path, format="PNG")
+        messagebox.showinfo("PNG exported", f"Exported PNG to {output_path}")
 
     def _refresh_formula_options(self) -> None:
         """Refresh formula options for the selected SMILES simulation."""
