@@ -146,7 +146,8 @@ The GUI contains tabs for common analysis tasks:
 - `Reaction paths`: view total and per-simulation reaction path counts, then copy
   only the reaction path string.
 - `Connected pathways`: view connected reaction states by pathway depth in
-  chemical formula or SMILES notation.
+  chemical formula or SMILES notation, filter by minimum occurrence count, and
+  export the visible pathway table as CSV.
 - `Reaction visualization`: open the first occurrence of a selected reaction in
   OVITO, if OVITO is installed.
 

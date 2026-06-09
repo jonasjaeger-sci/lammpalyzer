@@ -45,6 +45,7 @@ class ConnectedReactionStep:
     target: str
     count: int
     simulations: tuple[int, ...]
+    counts_by_simulation: tuple[tuple[int, int], ...]
 
 
 @dataclass(frozen=True)
@@ -219,15 +220,19 @@ def build_reaction_path_table(simulations) -> tuple[list[int], list[ReactionPath
 def build_connected_reaction_pathways(
     simulations,
     notation: str = "formula",
+    min_count: int = 1,
 ) -> list[ConnectedReactionPathway]:
     """Build possible reaction hierarchies from initially present species."""
 
     if notation not in {"formula", "smiles"}:
         raise ValueError("notation must be 'formula' or 'smiles'.")
+    if min_count < 1:
+        raise ValueError("min_count must be at least 1.")
 
     initial_species: set[str] = set()
     edge_counts: Counter[tuple[tuple[str, ...], tuple[str, ...]]] = Counter()
     edge_simulations: dict[tuple[tuple[str, ...], tuple[str, ...]], set[int]] = defaultdict(set)
+    edge_simulation_counts: dict[tuple[tuple[str, ...], tuple[str, ...]], Counter[int]] = defaultdict(Counter)
     edge_orders: dict[tuple[tuple[str, ...], tuple[str, ...]], int] = {}
     order = 0
 
@@ -260,13 +265,30 @@ def build_connected_reaction_pathways(
             edge = (source, target)
             edge_counts[edge] += 1
             edge_simulations[edge].add(simulation.index)
+            edge_simulation_counts[edge][simulation.index] += 1
             edge_orders[edge] = min(edge_orders.get(edge, order), order)
             order += 1
 
     if not edge_counts:
         return []
 
-    groups = _reachable_pathway_groups(edge_counts, edge_simulations, edge_orders, initial_species)
+    edge_counts, edge_simulations, edge_simulation_counts, edge_orders = _filter_pathway_edges_by_count(
+        edge_counts,
+        edge_simulations,
+        edge_simulation_counts,
+        edge_orders,
+        min_count,
+    )
+    if not edge_counts:
+        return []
+
+    groups = _reachable_pathway_groups(
+        edge_counts,
+        edge_simulations,
+        edge_simulation_counts,
+        edge_orders,
+        initial_species,
+    )
     if not groups:
         return []
     steps = _pathway_steps_from_groups(groups)
@@ -282,6 +304,7 @@ def build_connected_reaction_pathways(
 def _reachable_pathway_groups(
     edge_counts: Counter[tuple[tuple[str, ...], tuple[str, ...]]],
     edge_simulations: dict[tuple[tuple[str, ...], tuple[str, ...]], set[int]],
+    edge_simulation_counts: dict[tuple[tuple[str, ...], tuple[str, ...]], Counter[int]],
     edge_orders: dict[tuple[tuple[str, ...], tuple[str, ...]], int],
     initial_species: set[str],
 ) -> list[dict[str, object]]:
@@ -339,18 +362,58 @@ def _reachable_pathway_groups(
         forward = (source, target)
         reverse = (target, source)
         simulations = set()
+        counts_by_simulation: Counter[int] = Counter()
         count = 0
         for edge in (forward, reverse):
             if edge in edge_counts:
                 count += edge_counts[edge]
                 simulations.update(edge_simulations[edge])
+                counts_by_simulation.update(edge_simulation_counts[edge])
         group["count"] = count
         group["simulations"] = tuple(sorted(simulations))
+        group["counts_by_simulation"] = tuple(sorted(counts_by_simulation.items()))
         group["products"] = set(group["target"])
         groups.append(group)
 
     groups.sort(key=lambda group: (group["depth"], group["order"], _format_state(group["source"])))
     return groups
+
+
+def _filter_pathway_edges_by_count(
+    edge_counts: Counter[tuple[tuple[str, ...], tuple[str, ...]]],
+    edge_simulations: dict[tuple[tuple[str, ...], tuple[str, ...]], set[int]],
+    edge_simulation_counts: dict[tuple[tuple[str, ...], tuple[str, ...]], Counter[int]],
+    edge_orders: dict[tuple[tuple[str, ...], tuple[str, ...]], int],
+    min_count: int,
+) -> tuple[
+    Counter[tuple[tuple[str, ...], tuple[str, ...]]],
+    dict[tuple[tuple[str, ...], tuple[str, ...]], set[int]],
+    dict[tuple[tuple[str, ...], tuple[str, ...]], Counter[int]],
+    dict[tuple[tuple[str, ...], tuple[str, ...]], int],
+]:
+    """Remove pathway edges whose displayed total would be below ``min_count``."""
+
+    if min_count <= 1:
+        return edge_counts, edge_simulations, edge_simulation_counts, edge_orders
+
+    group_totals: Counter[tuple[tuple[str, ...], tuple[str, ...]]] = Counter()
+    for edge, count in edge_counts.items():
+        group_totals[_undirected_edge_key(*edge)] += count
+
+    filtered_counts: Counter[tuple[tuple[str, ...], tuple[str, ...]]] = Counter()
+    filtered_simulations: dict[tuple[tuple[str, ...], tuple[str, ...]], set[int]] = defaultdict(set)
+    filtered_simulation_counts: dict[tuple[tuple[str, ...], tuple[str, ...]], Counter[int]] = defaultdict(Counter)
+    filtered_orders: dict[tuple[tuple[str, ...], tuple[str, ...]], int] = {}
+
+    for edge, count in edge_counts.items():
+        if group_totals[_undirected_edge_key(*edge)] < min_count:
+            continue
+        filtered_counts[edge] = count
+        filtered_simulations[edge] = set(edge_simulations[edge])
+        filtered_simulation_counts[edge] = Counter(edge_simulation_counts[edge])
+        filtered_orders[edge] = edge_orders[edge]
+
+    return filtered_counts, filtered_simulations, filtered_simulation_counts, filtered_orders
 
 
 def _pathway_steps_from_groups(groups: list[dict[str, object]]) -> list[ConnectedReactionStep]:
@@ -370,6 +433,7 @@ def _pathway_steps_from_groups(groups: list[dict[str, object]]) -> list[Connecte
                 target=_format_state(group["target"]),
                 count=group["count"],
                 simulations=group["simulations"],
+                counts_by_simulation=group["counts_by_simulation"],
             )
         )
     return steps

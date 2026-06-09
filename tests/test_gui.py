@@ -59,6 +59,9 @@ def test_connected_reaction_pathway_data_uses_formula_notation():
     assert len(pathways) == 1
     assert pathways[0].steps[0].source == "C3H4O3 + Li"
     assert pathways[0].steps[0].target == "LiC3H4O3"
+    assert pathways[0].steps[0].counts_by_simulation == ((1, 1),)
+
+    assert connected_reaction_pathway_data(simulations, notation="formula", min_count=2) == []
 
 
 def test_image_output_path_defaults_to_png():

@@ -93,13 +93,13 @@ def test_build_connected_reaction_pathways_groups_branching_formula_paths():
     assert len(pathways) == 1
     assert pathways[0].root_states == ("LiC3H4O3",)
     observed_steps = [
-        (step.depth, step.source, step.arrow, step.target, step.simulations)
+        (step.depth, step.source, step.arrow, step.target, step.simulations, step.counts_by_simulation)
         for step in pathways[0].steps
     ]
     assert observed_steps == [
-        (1, "LiC3H4O3", "->", "B", (1, 2)),
-        (2, "B", "->", "C1", (1,)),
-        (2, "B", "->", "C2", (2,)),
+        (1, "LiC3H4O3", "->", "B", (1, 2), ((1, 1), (2, 1))),
+        (2, "B", "->", "C1", (1,), ((1, 1),)),
+        (2, "B", "->", "C2", (2,), ((2, 1),)),
     ]
 
 
@@ -125,7 +125,55 @@ def test_build_connected_reaction_pathways_merges_reversible_smiles_edges():
     assert observed_steps == [
         ("A", 1, "AB", "<->", "A + B", 2)
     ]
+    assert pathways[0].steps[0].counts_by_simulation == ((1, 2),)
     assert "Pathway A [depth 1]: AB <-> A + B" in format_connected_reaction_pathways(pathways)
+
+
+def test_connected_pathway_threshold_filters_low_count_steps():
+    """Only retain connected pathway steps that meet the minimum count."""
+
+    simulations = [
+        LoadedSimulation(
+            index=1,
+            smiles={0: ["raw"], 1: ["A"], 2: ["B"], 3: ["C1"]},
+            smiles_id={0: [["1"]], 1: [["1"]], 2: [["1"]], 3: [["1"]]},
+            chem_formulas={0: ["raw"], 1: ["A"], 2: ["B"], 3: ["C1"]},
+        ),
+        LoadedSimulation(
+            index=2,
+            smiles={0: ["raw"], 1: ["A"], 2: ["B"], 3: ["C2"]},
+            smiles_id={0: [["1"]], 1: [["1"]], 2: [["1"]], 3: [["1"]]},
+            chem_formulas={0: ["raw"], 1: ["A"], 2: ["B"], 3: ["C2"]},
+        ),
+    ]
+
+    pathways = build_connected_reaction_pathways(simulations, notation="formula", min_count=2)
+
+    assert len(pathways) == 1
+    assert [
+        (step.source, step.arrow, step.target, step.count, step.counts_by_simulation)
+        for step in pathways[0].steps
+    ] == [
+        ("A", "->", "B", 2, ((1, 1), (2, 1))),
+    ]
+
+
+def test_connected_pathway_threshold_uses_reversible_display_count():
+    """Apply the threshold to the displayed bidirectional count."""
+
+    simulation = LoadedSimulation(
+        index=1,
+        smiles={0: ["raw"], 1: ["AB"], 2: ["A", "B"], 3: ["AB"]},
+        smiles_id={0: [["1", "2"]], 1: [["1", "2"]], 2: [["1"], ["2"]], 3: [["1", "2"]]},
+        chem_formulas={0: ["raw"], 1: ["AB"], 2: ["A", "B"], 3: ["AB"]},
+    )
+
+    pathways = build_connected_reaction_pathways([simulation], notation="smiles", min_count=2)
+
+    assert len(pathways) == 1
+    assert [(step.source, step.arrow, step.target, step.count) for step in pathways[0].steps] == [
+        ("AB", "<->", "A + B", 2)
+    ]
 
 
 def test_connected_formula_pathways_skip_formula_equivalent_smiles_changes():

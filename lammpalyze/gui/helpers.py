@@ -51,10 +51,14 @@ def reaction_path_table_data(simulations) -> tuple[list[int], list[ReactionPath]
     return build_reaction_path_table(simulations)
 
 
-def connected_reaction_pathway_data(simulations, notation: str = "formula") -> list[ConnectedReactionPathway]:
+def connected_reaction_pathway_data(
+    simulations,
+    notation: str = "formula",
+    min_count: int = 1,
+) -> list[ConnectedReactionPathway]:
     """Return connected reaction pathways in formula or SMILES notation."""
 
-    return build_connected_reaction_pathways(simulations, notation=notation)
+    return build_connected_reaction_pathways(simulations, notation=notation, min_count=min_count)
 
 
 def image_output_path(filename: str) -> Path:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import csv
+from pathlib import Path
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from lammpalyze.ovito import OvitoNotAvailableError, create_reaction_scene, launch_ovito_scene, normalize_reaction_path
 from lammpalyze.reactions import format_connected_reaction_pathways
@@ -97,6 +99,25 @@ class ReactionTabMixin:
             value="smiles",
             command=self._refresh_connected_pathways,
         ).pack(side="left", padx=(8, 0))
+        ttk.Label(controls, text="Minimum total occurrences").pack(side="left", padx=(20, 8))
+        self.connected_pathway_min_count = tk.StringVar(value="1")
+        threshold_input = ttk.Spinbox(
+            controls,
+            from_=1,
+            to=1_000_000,
+            increment=1,
+            textvariable=self.connected_pathway_min_count,
+            width=8,
+            command=self._refresh_connected_pathways,
+        )
+        threshold_input.pack(side="left")
+        threshold_input.bind("<Return>", self._refresh_connected_pathways)
+        threshold_input.bind("<FocusOut>", self._refresh_connected_pathways)
+        ttk.Button(
+            controls,
+            text="Export CSV",
+            command=self._export_connected_pathways_csv,
+        ).pack(side="right")
 
         panes = ttk.PanedWindow(parent, orient="vertical")
         panes.pack(fill="both", expand=True, padx=8, pady=(0, 8))
@@ -106,7 +127,20 @@ class ReactionTabMixin:
         panes.add(table_frame, weight=3)
         panes.add(outline_frame, weight=2)
 
-        columns = ("step", "parents", "depth", "reactants", "arrow", "products", "count", "simulations")
+        self.connected_pathway_simulation_columns = [
+            f"simulation_{index}" for index in self._reaction_simulation_indices
+        ]
+        columns = (
+            "step",
+            "parents",
+            "depth",
+            "reactants",
+            "arrow",
+            "products",
+            "count",
+            *self.connected_pathway_simulation_columns,
+            "simulations",
+        )
         self.connected_pathway_table = ttk.Treeview(table_frame, columns=columns, show="headings")
         self.connected_pathway_table.heading("step", text="Pathway")
         self.connected_pathway_table.heading("parents", text="After")
@@ -115,6 +149,12 @@ class ReactionTabMixin:
         self.connected_pathway_table.heading("arrow", text="")
         self.connected_pathway_table.heading("products", text="Products")
         self.connected_pathway_table.heading("count", text="Count")
+        for column, index in zip(
+            self.connected_pathway_simulation_columns,
+            self._reaction_simulation_indices,
+            strict=False,
+        ):
+            self.connected_pathway_table.heading(column, text=f"Simulation {index}")
         self.connected_pathway_table.heading("simulations", text="Simulations")
         self.connected_pathway_table.column("step", width=85, minwidth=70, anchor="center", stretch=False)
         self.connected_pathway_table.column("parents", width=95, minwidth=70, anchor="center", stretch=False)
@@ -123,6 +163,8 @@ class ReactionTabMixin:
         self.connected_pathway_table.column("arrow", width=55, minwidth=45, anchor="center", stretch=False)
         self.connected_pathway_table.column("products", width=360, minwidth=220, anchor="w", stretch=True)
         self.connected_pathway_table.column("count", width=80, minwidth=70, anchor="e", stretch=False)
+        for column in self.connected_pathway_simulation_columns:
+            self.connected_pathway_table.column(column, width=105, minwidth=90, anchor="e", stretch=False)
         self.connected_pathway_table.column("simulations", width=140, minwidth=100, anchor="w", stretch=False)
 
         y_scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.connected_pathway_table.yview)
@@ -250,17 +292,19 @@ class ReactionTabMixin:
             self.reaction_path_copy_value.set(reaction)
         return "break"
 
-    def _refresh_connected_pathways(self) -> None:
+    def _refresh_connected_pathways(self, _event=None) -> None:
         """Refresh connected pathway table and text outline for the notation."""
 
         notation = self.connected_pathway_notation.get()
-        pathways = self.project.connected_reaction_pathways(notation=notation)
+        min_count = self._connected_pathway_threshold()
+        pathways = self.project.connected_reaction_pathways(notation=notation, min_count=min_count)
         for item_id in self.connected_pathway_table.get_children():
             self.connected_pathway_table.delete(item_id)
 
         for pathway in pathways:
             for step in pathway.steps:
                 simulations = ", ".join(str(index) for index in step.simulations)
+                per_simulation_counts = dict(step.counts_by_simulation)
                 self.connected_pathway_table.insert(
                     "",
                     "end",
@@ -272,6 +316,10 @@ class ReactionTabMixin:
                         step.arrow,
                         step.target,
                         step.count,
+                        *[
+                            per_simulation_counts.get(index, 0)
+                            for index in self._reaction_simulation_indices
+                        ],
                         simulations,
                     ),
                 )
@@ -280,6 +328,46 @@ class ReactionTabMixin:
         self.connected_pathway_outline.delete("1.0", "end")
         self.connected_pathway_outline.insert("1.0", format_connected_reaction_pathways(pathways))
         self.connected_pathway_outline.configure(state="disabled")
+        self._connected_pathway_cell = ("", "")
+        self.connected_pathway_cell_value.set("")
+
+    def _connected_pathway_threshold(self) -> int:
+        """Return the selected minimum pathway count, correcting invalid values."""
+
+        try:
+            value = int(self.connected_pathway_min_count.get())
+        except ValueError:
+            value = 1
+        value = max(1, value)
+        self.connected_pathway_min_count.set(str(value))
+        return value
+
+    def _export_connected_pathways_csv(self) -> None:
+        """Export the currently visible connected pathway rows to CSV."""
+
+        filename = filedialog.asksaveasfilename(
+            title="Export connected pathways CSV",
+            initialfile="connected_pathways.csv",
+            defaultextension=".csv",
+            filetypes=(("CSV file", "*.csv"), ("All files", "*.*")),
+        )
+        if not filename:
+            return
+
+        output_path = Path(filename)
+        columns = self.connected_pathway_table["columns"]
+        headings = [self.connected_pathway_table.heading(column)["text"] for column in columns]
+        try:
+            with output_path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle, lineterminator="\n")
+                writer.writerow(headings)
+                for item_id in self.connected_pathway_table.get_children():
+                    writer.writerow([self.connected_pathway_table.set(item_id, column) for column in columns])
+        except OSError as exc:  # pragma: no cover - GUI feedback.
+            messagebox.showerror("Export failed", str(exc))
+            return
+
+        messagebox.showinfo("CSV exported", f"Exported CSV to {output_path}")
 
     def _sync_connected_pathway_cell(self, event=None) -> None:
         """Store the clicked connected-pathway table cell for copying."""
