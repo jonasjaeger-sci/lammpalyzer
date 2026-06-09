@@ -1,7 +1,7 @@
 """Tests for GUI data helpers."""
 
 from lammpalyze.analysis import LoadedSimulation
-from lammpalyze.gui import molecule_render_size, reaction_path_table_data
+from lammpalyze.gui import connected_reaction_pathway_data, molecule_render_size, reaction_path_table_data
 from lammpalyze.gui.helpers import (
     image_output_path,
     parse_reference_lines,
@@ -40,6 +40,25 @@ def test_reaction_path_table_data_counts_paths_per_simulation():
     assert simulation_indices == [1, 2]
     assert [(path.reaction, path.count) for path in paths] == [("['AB'] -> ['A', 'B']", 2)]
     assert counts["['AB'] -> ['A', 'B']"] == {1: 1, 2: 1}
+
+
+def test_connected_reaction_pathway_data_uses_formula_notation():
+    """Build connected pathway rows for the GUI helper."""
+
+    simulations = [
+        LoadedSimulation(
+            index=1,
+            smiles={0: ["raw"], 1: ["[Li]", "O=C1"], 2: ["[Li]O=C1"]},
+            smiles_id={0: [["1", "2"]], 1: [["1"], ["2"]], 2: [["1", "2"]]},
+            chem_formulas={0: ["raw"], 1: ["Li", "C3H4O3"], 2: ["LiC3H4O3"]},
+        )
+    ]
+
+    pathways = connected_reaction_pathway_data(simulations, notation="formula")
+
+    assert len(pathways) == 1
+    assert pathways[0].steps[0].source == "C3H4O3 + Li"
+    assert pathways[0].steps[0].target == "LiC3H4O3"
 
 
 def test_image_output_path_defaults_to_png():

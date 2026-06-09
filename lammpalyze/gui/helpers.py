@@ -5,7 +5,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from lammpalyze.reactions import ReactionPath, build_reaction_path_table
+from lammpalyze.reactions import (
+    ConnectedReactionPathway,
+    ReactionPath,
+    build_connected_reaction_pathways,
+    build_reaction_path_table,
+)
 
 DEFAULT_IMAGE_EXTENSION = ".png"
 IMAGE_FILETYPES = (
@@ -44,6 +49,12 @@ def reaction_path_table_data(simulations) -> tuple[list[int], list[ReactionPath]
     """Return simulation indexes, total paths, and per-simulation counts."""
 
     return build_reaction_path_table(simulations)
+
+
+def connected_reaction_pathway_data(simulations, notation: str = "formula") -> list[ConnectedReactionPathway]:
+    """Return connected reaction pathways in formula or SMILES notation."""
+
+    return build_connected_reaction_pathways(simulations, notation=notation)
 
 
 def image_output_path(filename: str) -> Path:

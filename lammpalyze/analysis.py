@@ -12,7 +12,14 @@ import pandas as pd
 
 from lammpalyze.config import LammpalyzeConfig
 from lammpalyze.parsers import eval_species, eval_thermo, parse_bonds, parse_traj
-from lammpalyze.reactions import ReactionOccurrence, ReactionPath, build_reaction_path_table, find_reaction_occurrences
+from lammpalyze.reactions import (
+    ConnectedReactionPathway,
+    ReactionOccurrence,
+    ReactionPath,
+    build_connected_reaction_pathways,
+    build_reaction_path_table,
+    find_reaction_occurrences,
+)
 
 LOGGER = logging.getLogger(__name__)
 ProgressCallback = Callable[[int, int, str], None]
@@ -75,6 +82,11 @@ class LammpalyzeProject:
         """Prepare reaction counts in the same shape used by the GUI table."""
 
         return build_reaction_path_table(self.simulations)
+
+    def connected_reaction_pathways(self, notation: str = "formula") -> list[ConnectedReactionPathway]:
+        """Prepare connected reaction-state pathways for GUI display."""
+
+        return build_connected_reaction_pathways(self.simulations, notation=notation)
 
     def first_reaction_occurrence(self, reaction: str) -> tuple[LoadedSimulation, ReactionOccurrence]:
         """Find a concrete event for a reaction path, scanning runs in order."""

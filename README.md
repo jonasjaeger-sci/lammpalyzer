@@ -145,6 +145,8 @@ The GUI contains tabs for common analysis tasks:
 - `Molecule visualization`: render a selected SMILES molecule image.
 - `Reaction paths`: view total and per-simulation reaction path counts, then copy
   only the reaction path string.
+- `Connected pathways`: view connected reaction states by pathway depth in
+  chemical formula or SMILES notation.
 - `Reaction visualization`: open the first occurrence of a selected reaction in
   OVITO, if OVITO is installed.
 
@@ -158,7 +160,7 @@ Metadata,Value
 input_file,/path/to/lmplyz.inp
 run_date,2026-05-29T15:20:30+02:00
 simulation_ids,1;2
-software_version,1.1.0
+software_version,1.2.0
 
 Reaction,Simulation 1,Simulation 2,Sum
 "['[H][H]'] -> ['[H]', '[H]']",2,1,3

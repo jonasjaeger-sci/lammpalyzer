@@ -37,7 +37,7 @@ class LammpalyzeGUI(
             self._reaction_counts_by_simulation,
         ) = project.reaction_path_table()
         self.root = tk.Tk()
-        self.root.title("lammpalyze")
+        self.root.title("Lammpalyzer")
         self.root.geometry("1100x760")
         self._species_canvases: list[FigureCanvasTkAgg] = []
         self._thermo_canvases: list[FigureCanvasTkAgg] = []
@@ -73,12 +73,14 @@ class LammpalyzeGUI(
         rdf_tab = ttk.Frame(tabs)
         smiles_tab = ttk.Frame(tabs)
         reaction_table_tab = ttk.Frame(tabs)
+        connected_pathways_tab = ttk.Frame(tabs)
         reaction_tab = ttk.Frame(tabs)
         tabs.add(species_tab, text="Species analysis")
         tabs.add(thermo_tab, text="Thermodynamic data")
         tabs.add(rdf_tab, text="Radial distribution")
         tabs.add(smiles_tab, text="Molecule visualization")
         tabs.add(reaction_table_tab, text="Reaction paths")
+        tabs.add(connected_pathways_tab, text="Connected pathways")
         tabs.add(reaction_tab, text="Reaction visualization")
 
         self._build_species_tab(species_tab)
@@ -86,6 +88,7 @@ class LammpalyzeGUI(
         self._build_rdf_tab(rdf_tab)
         self._build_smiles_tab(smiles_tab)
         self._build_reaction_table_tab(reaction_table_tab)
+        self._build_connected_pathways_tab(connected_pathways_tab)
         self._build_reaction_tab(reaction_tab)
 
     def close(self) -> None:
