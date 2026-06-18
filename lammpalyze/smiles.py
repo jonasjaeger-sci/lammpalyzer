@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from io import BytesIO
 
 try:
@@ -71,6 +72,39 @@ def smiles_for_formula(
             if observed_formula == formula:
                 values.add(smiles_by_time[timestep][index])
     return sorted(values)
+
+
+def reaction_smiles_groups(reaction: str) -> tuple[list[str], list[str]]:
+    """Return reactant and product SMILES lists from a formatted reaction path."""
+
+    if " -> " in reaction:
+        reactants_text, products_text = reaction.split(" -> ", maxsplit=1)
+    elif "->" in reaction:
+        reactants_text, products_text = reaction.split("->", maxsplit=1)
+    else:
+        raise ValueError("Reaction path must contain '->'.")
+
+    reactants = _literal_smiles_list(reactants_text.strip(), "reactants")
+    products = _literal_smiles_list(products_text.strip(), "products")
+    return reactants, products
+
+
+def reaction_smiles_path(reactants: list[str], products: list[str]) -> str:
+    """Return the canonical formatted reaction path for SMILES groups."""
+
+    return f"{sorted(reactants)} -> {sorted(products)}"
+
+
+def _literal_smiles_list(text: str, label: str) -> list[str]:
+    """Parse one side of a reaction path as a list of SMILES strings."""
+
+    try:
+        values = ast.literal_eval(text)
+    except (SyntaxError, ValueError) as exc:
+        raise ValueError(f"Could not parse reaction {label}: {text}") from exc
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        raise ValueError(f"Reaction {label} must be a list of SMILES strings.")
+    return values
 
 
 def _require_rdkit() -> None:

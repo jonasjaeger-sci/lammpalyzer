@@ -13,6 +13,9 @@ from lammpalyze.gui.helpers import (
 )
 from lammpalyze.smiles import formulas_for_simulation, molecule_image, molecule_photo_image, smiles_for_formula
 
+MOLECULE_THUMBNAIL_SIZE = (260, 200)
+MOLECULE_GALLERY_MIN_COLUMN_WIDTH = 300
+
 
 class MoleculeTabMixin:
     """Build and manage the molecule-visualization tab."""
@@ -50,11 +53,18 @@ class MoleculeTabMixin:
         self.smiles_combo.pack(fill="x", pady=(0, 12))
 
         ttk.Button(controls, text="Generate", command=self._generate_molecule).pack(fill="x")
+        ttk.Button(controls, text="Generate all structures", command=self._generate_all_molecules).pack(
+            fill="x",
+            pady=(8, 0),
+        )
         ttk.Button(controls, text="Export PNG", command=self._save_molecule_image).pack(fill="x", pady=(8, 0))
 
-        self.molecule_label = ttk.Label(output, anchor="center")
-        self.molecule_label.pack(fill="both", expand=True)
-        output.bind("<Configure>", self._schedule_molecule_resize)
+        self.molecule_canvas, self.molecule_gallery = self._build_scrollable_molecule_gallery(output)
+        self.molecule_canvas.pack(side="left", fill="both", expand=True)
+        molecule_scrollbar = ttk.Scrollbar(output, orient="vertical", command=self.molecule_canvas.yview)
+        molecule_scrollbar.pack(side="right", fill="y")
+        self.molecule_canvas.configure(yscrollcommand=molecule_scrollbar.set)
+        self.molecule_canvas.bind("<Configure>", self._schedule_molecule_resize, add="+")
         self._refresh_formula_options()
 
     def _generate_molecule(self) -> None:
@@ -65,14 +75,35 @@ class MoleculeTabMixin:
             if not smiles:
                 raise ValueError("Select a SMILES string.")
             self._molecule_smiles = smiles
+            self._molecule_gallery_mode = "single"
             self._render_molecule_image()
+        except Exception as exc:  # pragma: no cover - GUI feedback.
+            messagebox.showerror("SMILES visualization failed", str(exc))
+
+    def _generate_all_molecules(self) -> None:
+        """Render every observed structure for the selected species."""
+
+        try:
+            smiles_values = list(self.smiles_combo["values"])
+            if not smiles_values:
+                raise ValueError("Select a species with at least one SMILES string.")
+            self._molecule_smiles = None
+            self._molecule_gallery_mode = "all"
+            self._render_smiles_gallery(
+                self.molecule_gallery,
+                smiles_values,
+                photo_attribute="_molecule_gallery_photos",
+                variable_attribute="_molecule_gallery_vars",
+                image_size=MOLECULE_THUMBNAIL_SIZE,
+                canvas=self.molecule_canvas,
+            )
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("SMILES visualization failed", str(exc))
 
     def _schedule_molecule_resize(self, _event=None) -> None:
         """Debounce molecule image resizing after output-area changes."""
 
-        if not self._molecule_smiles:
+        if self._molecule_gallery_mode != "single" or not self._molecule_smiles:
             return
         if self._molecule_resize_job is not None:
             self.root.after_cancel(self._molecule_resize_job)
@@ -86,12 +117,19 @@ class MoleculeTabMixin:
             return
 
         image_size = molecule_render_size(
-            self.molecule_label.winfo_width(),
-            self.molecule_label.winfo_height(),
+            self.molecule_canvas.winfo_width(),
+            self.molecule_canvas.winfo_height(),
         )
         self._molecule_image_size = image_size
-        self._molecule_photo = molecule_photo_image(self._molecule_smiles, size=image_size)
-        self.molecule_label.configure(image=self._molecule_photo)
+        self._render_smiles_gallery(
+            self.molecule_gallery,
+            [self._molecule_smiles],
+            photo_attribute="_molecule_gallery_photos",
+            variable_attribute="_molecule_gallery_vars",
+            image_size=image_size,
+            canvas=self.molecule_canvas,
+            columns=1,
+        )
 
     def _save_molecule_image(self) -> None:
         """Save the current molecule rendering to an image file."""
@@ -109,8 +147,8 @@ class MoleculeTabMixin:
             return
         output_path = image_output_path(filename).with_suffix(".png")
         image_size = self._molecule_image_size or molecule_render_size(
-            self.molecule_label.winfo_width(),
-            self.molecule_label.winfo_height(),
+            self.molecule_canvas.winfo_width(),
+            self.molecule_canvas.winfo_height(),
         )
         molecule_image(self._molecule_smiles, size=image_size).save(output_path, format="PNG")
         messagebox.showinfo("PNG exported", f"Exported PNG to {output_path}")
@@ -142,3 +180,109 @@ class MoleculeTabMixin:
         if not value:
             return None
         return self.project.simulation(int(value))
+
+    def _build_scrollable_molecule_gallery(self, parent: ttk.Frame) -> tuple[tk.Canvas, ttk.Frame]:
+        """Create a scrollable frame for molecule image galleries."""
+
+        canvas = tk.Canvas(parent, highlightthickness=0)
+        gallery = ttk.Frame(canvas)
+        window_id = canvas.create_window((0, 0), window=gallery, anchor="nw")
+
+        def sync_scroll_region(_event=None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def sync_gallery_width(event) -> None:
+            canvas.itemconfigure(window_id, width=event.width)
+
+        gallery.bind("<Configure>", sync_scroll_region)
+        canvas.bind("<Configure>", sync_gallery_width, add="+")
+        return canvas, gallery
+
+    def _render_smiles_gallery(
+        self,
+        gallery: ttk.Frame,
+        smiles_values: list[str],
+        *,
+        photo_attribute: str,
+        variable_attribute: str,
+        image_size: tuple[int, int],
+        canvas: tk.Canvas,
+        columns: int | None = None,
+        title: str | None = None,
+    ) -> None:
+        """Render copyable SMILES tiles into ``gallery``."""
+
+        groups = [(title, smiles_values)] if title else [(None, smiles_values)]
+        self._render_grouped_smiles_gallery(
+            gallery,
+            groups,
+            photo_attribute=photo_attribute,
+            variable_attribute=variable_attribute,
+            image_size=image_size,
+            canvas=canvas,
+            columns=columns,
+        )
+
+    def _render_grouped_smiles_gallery(
+        self,
+        gallery: ttk.Frame,
+        groups: list[tuple[str | None, list[str]]],
+        *,
+        photo_attribute: str,
+        variable_attribute: str,
+        image_size: tuple[int, int],
+        canvas: tk.Canvas,
+        columns: int | None = None,
+    ) -> None:
+        """Render one or more labeled groups of copyable SMILES tiles."""
+
+        for child in gallery.winfo_children():
+            child.destroy()
+
+        photos = []
+        variables = []
+
+        if columns is None:
+            width = max(canvas.winfo_width(), MOLECULE_GALLERY_MIN_COLUMN_WIDTH)
+            columns = max(1, width // MOLECULE_GALLERY_MIN_COLUMN_WIDTH)
+
+        current_row = 0
+        for title, smiles_values in groups:
+            if title:
+                ttk.Label(gallery, text=title).grid(
+                    row=current_row,
+                    column=0,
+                    columnspan=columns,
+                    sticky="w",
+                    padx=8,
+                    pady=(8, 2),
+                )
+                current_row += 1
+            for index, smiles in enumerate(smiles_values):
+                row = current_row + index // columns
+                column = index % columns
+                tile = ttk.Frame(gallery, padding=6)
+                tile.grid(row=row, column=column, sticky="nsew", padx=4, pady=4)
+                gallery.columnconfigure(column, weight=1, uniform="molecule_gallery")
+
+                photo = molecule_photo_image(smiles, size=image_size)
+                photos.append(photo)
+                ttk.Label(tile, image=photo, anchor="center").pack(fill="x")
+
+                value = tk.StringVar(value=smiles)
+                variables.append(value)
+                ttk.Entry(tile, textvariable=value, state="readonly").pack(fill="x", pady=(6, 4))
+                ttk.Button(tile, text="Copy SMILES", command=lambda text=smiles: self._copy_text(text)).pack(fill="x")
+            current_row += max(1, (len(smiles_values) + columns - 1) // columns)
+
+        setattr(self, photo_attribute, photos)
+        setattr(self, variable_attribute, variables)
+        gallery.update_idletasks()
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def _copy_text(self, text: str) -> None:
+        """Copy text to the system clipboard."""
+
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.root.update_idletasks()

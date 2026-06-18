@@ -45,6 +45,15 @@ class LammpalyzeGUI(
         self._rdf_timesteps_by_simulation: dict[int, list[int]] = {}
         self._molecule_photo = None
         self._molecule_smiles: str | None = None
+        self._molecule_gallery_mode = "single"
+        self._molecule_gallery_photos = []
+        self._molecule_gallery_vars = []
+        self._reaction_path_gallery_photos = []
+        self._reaction_path_gallery_vars = []
+        self._reaction_path_reactant_photos = []
+        self._reaction_path_reactant_vars = []
+        self._reaction_path_product_photos = []
+        self._reaction_path_product_vars = []
         self._molecule_image_size: tuple[int, int] | None = None
         self._molecule_resize_job: str | None = None
         self._closed = False
@@ -114,6 +123,14 @@ class LammpalyzeGUI(
             self.root.after_cancel(self._molecule_resize_job)
         self._molecule_resize_job = None
         self._molecule_smiles = None
+        self._molecule_gallery_photos = []
+        self._molecule_gallery_vars = []
+        self._reaction_path_gallery_photos = []
+        self._reaction_path_gallery_vars = []
+        self._reaction_path_reactant_photos = []
+        self._reaction_path_reactant_vars = []
+        self._reaction_path_product_photos = []
+        self._reaction_path_product_vars = []
         self._molecule_image_size = None
         self._molecule_photo = None
         plt.close("all")

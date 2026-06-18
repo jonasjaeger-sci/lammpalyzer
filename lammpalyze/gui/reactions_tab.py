@@ -7,8 +7,10 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from lammpalyze.gui.molecule_tab import MOLECULE_THUMBNAIL_SIZE
 from lammpalyze.ovito import OvitoNotAvailableError, create_reaction_scene, launch_ovito_scene, normalize_reaction_path
 from lammpalyze.reactions import format_connected_reaction_pathways
+from lammpalyze.smiles import reaction_smiles_groups, reaction_smiles_path
 
 
 class ReactionTabMixin:
@@ -17,8 +19,12 @@ class ReactionTabMixin:
     def _build_reaction_table_tab(self, parent: ttk.Frame) -> None:
         """Create the reaction-path count table and copy controls."""
 
-        table_frame = ttk.Frame(parent)
-        table_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        panes = ttk.PanedWindow(parent, orient="vertical")
+        panes.pack(fill="both", expand=True, padx=8, pady=8)
+        table_frame = ttk.Frame(panes)
+        preview_frame = ttk.Frame(panes)
+        panes.add(table_frame, weight=3)
+        panes.add(preview_frame, weight=2)
 
         simulation_columns = [f"simulation_{index}" for index in self._reaction_simulation_indices]
         columns = ("count", *simulation_columns, "reaction")
@@ -60,8 +66,8 @@ class ReactionTabMixin:
         self.reaction_table.bind("<Control-c>", self._copy_selected_reaction_path)
         self.reaction_table.bind("<Control-C>", self._copy_selected_reaction_path)
 
-        copy_frame = ttk.Frame(parent)
-        copy_frame.pack(fill="x", padx=8, pady=(0, 8))
+        copy_frame = ttk.Frame(table_frame)
+        copy_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         ttk.Label(copy_frame, text="Selected reaction path").pack(anchor="w")
         self.reaction_path_copy_value = tk.StringVar()
         self.reaction_path_copy_entry = ttk.Entry(
@@ -71,6 +77,18 @@ class ReactionTabMixin:
         )
         self.reaction_path_copy_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(copy_frame, text="Copy", command=self._copy_selected_reaction_path).pack(side="right")
+
+        self.reaction_path_canvas, self.reaction_path_gallery = self._build_scrollable_molecule_gallery(
+            preview_frame
+        )
+        self.reaction_path_canvas.pack(side="left", fill="both", expand=True)
+        reaction_path_scrollbar = ttk.Scrollbar(
+            preview_frame,
+            orient="vertical",
+            command=self.reaction_path_canvas.yview,
+        )
+        reaction_path_scrollbar.pack(side="right", fill="y")
+        self.reaction_path_canvas.configure(yscrollcommand=reaction_path_scrollbar.set)
 
         children = self.reaction_table.get_children()
         if children:
@@ -279,7 +297,10 @@ class ReactionTabMixin:
     def _sync_reaction_path_copy_field(self, _event=None) -> None:
         """Copy the selected table reaction into the read-only text field."""
 
-        self.reaction_path_copy_value.set(self._selected_reaction_path_from_table())
+        reaction = self._selected_reaction_path_from_table()
+        self.reaction_path_copy_value.set(reaction)
+        if hasattr(self, "reaction_path_gallery"):
+            self._render_reaction_path_gallery(reaction)
 
     def _copy_selected_reaction_path(self, _event=None) -> str:
         """Copy the selected reaction path to the system clipboard."""
@@ -403,3 +424,81 @@ class ReactionTabMixin:
             self.root.update_idletasks()
             self.connected_pathway_cell_value.set(value)
         return "break"
+
+    def _render_reaction_path_gallery(self, reaction: str) -> None:
+        """Render structures for the selected reaction path."""
+
+        for child in self.reaction_path_gallery.winfo_children():
+            child.destroy()
+        self._reaction_path_gallery_photos = []
+        self._reaction_path_gallery_vars = []
+        if not reaction:
+            return
+
+        try:
+            reactants, products = reaction_smiles_groups(normalize_reaction_path(reaction))
+            arrow = self._reaction_path_arrow(reactants, products)
+            self._render_reaction_side_by_side(reactants, products, arrow)
+        except Exception as exc:  # pragma: no cover - GUI feedback.
+            ttk.Label(
+                self.reaction_path_gallery,
+                text=f"Could not visualize reaction path: {exc}",
+                wraplength=620,
+                justify="left",
+            ).pack(anchor="nw", padx=8, pady=8)
+
+    def _render_reaction_side_by_side(
+        self,
+        reactants: list[str],
+        products: list[str],
+        arrow: str,
+    ) -> None:
+        """Render selected reaction molecules as reactants -> products."""
+
+        reactant_frame = ttk.Frame(self.reaction_path_gallery)
+        arrow_frame = ttk.Frame(self.reaction_path_gallery)
+        product_frame = ttk.Frame(self.reaction_path_gallery)
+        reactant_frame.grid(row=0, column=0, sticky="nsew", padx=(4, 10), pady=4)
+        arrow_frame.grid(row=0, column=1, sticky="ns", padx=4, pady=4)
+        product_frame.grid(row=0, column=2, sticky="nsew", padx=(10, 4), pady=4)
+        self.reaction_path_gallery.columnconfigure(0, weight=1, uniform="reaction_side")
+        self.reaction_path_gallery.columnconfigure(1, weight=0)
+        self.reaction_path_gallery.columnconfigure(2, weight=1, uniform="reaction_side")
+        self.reaction_path_gallery.rowconfigure(0, weight=1)
+
+        ttk.Label(arrow_frame, text=arrow, anchor="center").pack(expand=True, fill="both", pady=96)
+        self._render_smiles_gallery(
+            reactant_frame,
+            reactants,
+            photo_attribute="_reaction_path_reactant_photos",
+            variable_attribute="_reaction_path_reactant_vars",
+            image_size=MOLECULE_THUMBNAIL_SIZE,
+            canvas=self.reaction_path_canvas,
+            columns=1,
+            title="Reactants",
+        )
+        self._render_smiles_gallery(
+            product_frame,
+            products,
+            photo_attribute="_reaction_path_product_photos",
+            variable_attribute="_reaction_path_product_vars",
+            image_size=MOLECULE_THUMBNAIL_SIZE,
+            canvas=self.reaction_path_canvas,
+            columns=1,
+            title="Products",
+        )
+        self._reaction_path_gallery_photos = [
+            *self._reaction_path_reactant_photos,
+            *self._reaction_path_product_photos,
+        ]
+        self._reaction_path_gallery_vars = [
+            *self._reaction_path_reactant_vars,
+            *self._reaction_path_product_vars,
+        ]
+
+    def _reaction_path_arrow(self, reactants: list[str], products: list[str]) -> str:
+        """Return a reversible arrow when the reverse reaction path exists."""
+
+        available_reactions = {normalize_reaction_path(path.reaction) for path in self._reaction_paths}
+        reverse_reaction = reaction_smiles_path(reactants=products, products=reactants)
+        return "<->" if reverse_reaction in available_reactions else "->"
