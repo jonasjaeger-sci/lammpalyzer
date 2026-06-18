@@ -57,6 +57,17 @@ class ConnectedReactionPathway:
     steps: tuple[ConnectedReactionStep, ...]
 
 
+@dataclass
+class PathwayEdgeData:
+    """Aggregated reaction edges for connected pathway construction."""
+
+    initial_species: set[str]
+    edge_counts: Counter[tuple[tuple[str, ...], tuple[str, ...]]]
+    edge_simulations: dict[tuple[tuple[str, ...], tuple[str, ...]], set[int]]
+    edge_simulation_counts: dict[tuple[tuple[str, ...], tuple[str, ...]], Counter[int]]
+    edge_orders: dict[tuple[tuple[str, ...], tuple[str, ...]], int]
+
+
 class UnionFindReax:
     """Disjoint-set structure used while linking molecules across timesteps."""
 
@@ -224,73 +235,134 @@ def build_connected_reaction_pathways(
 ) -> list[ConnectedReactionPathway]:
     """Build possible reaction hierarchies from initially present species."""
 
+    _validate_connected_pathway_options(notation, min_count)
+    edge_data = _collect_pathway_edge_data(simulations, notation)
+    if not edge_data.edge_counts:
+        return []
+
+    edge_data = _filter_pathway_edge_data(edge_data, min_count)
+    if not edge_data.edge_counts:
+        return []
+
+    groups = _reachable_pathway_groups(
+        edge_data.edge_counts,
+        edge_data.edge_simulations,
+        edge_data.edge_simulation_counts,
+        edge_data.edge_orders,
+        edge_data.initial_species,
+    )
+    if not groups:
+        return []
+    return _connected_pathways_from_groups(groups, edge_data.initial_species)
+
+
+def _validate_connected_pathway_options(notation: str, min_count: int) -> None:
+    """Validate connected pathway display options."""
+
     if notation not in {"formula", "smiles"}:
         raise ValueError("notation must be 'formula' or 'smiles'.")
     if min_count < 1:
         raise ValueError("min_count must be at least 1.")
 
-    initial_species: set[str] = set()
-    edge_counts: Counter[tuple[tuple[str, ...], tuple[str, ...]]] = Counter()
-    edge_simulations: dict[tuple[tuple[str, ...], tuple[str, ...]], set[int]] = defaultdict(set)
-    edge_simulation_counts: dict[tuple[tuple[str, ...], tuple[str, ...]], Counter[int]] = defaultdict(Counter)
-    edge_orders: dict[tuple[tuple[str, ...], tuple[str, ...]], int] = {}
+
+def _collect_pathway_edge_data(simulations, notation: str) -> PathwayEdgeData:
+    """Collect reaction-state edges from loaded simulations."""
+
+    edge_data = PathwayEdgeData(
+        initial_species=set(),
+        edge_counts=Counter(),
+        edge_simulations=defaultdict(set),
+        edge_simulation_counts=defaultdict(Counter),
+        edge_orders={},
+    )
     order = 0
-
     for simulation in simulations:
-        if simulation.smiles is None or simulation.smiles_id is None:
+        values_by_time = _pathway_values_by_time(simulation, notation)
+        if values_by_time is None:
             continue
-        if notation == "formula":
-            if simulation.chem_formulas is None:
-                continue
-            values_by_time = simulation.chem_formulas
-        else:
-            values_by_time = simulation.smiles
-
         timesteps = sorted(simulation.smiles)
         if not timesteps:
             continue
+
         initial_timestep = timesteps[1] if len(timesteps) > 1 else timesteps[0]
-        initial_species.update(values_by_time[initial_timestep])
-        timestep_positions = {timestep: index for index, timestep in enumerate(timesteps)}
-        initial_position = timestep_positions[initial_timestep]
+        edge_data.initial_species.update(values_by_time[initial_timestep])
+        order = _collect_simulation_pathway_edges(
+            simulation,
+            values_by_time,
+            timesteps,
+            edge_data,
+            order,
+        )
+    return edge_data
 
-        for t1, t2, reaction in _iter_reactions(simulation.smiles, simulation.smiles_id):
-            if timestep_positions[t1] < initial_position:
-                continue
-            source = tuple(sorted(values_by_time[t1][index] for index in reaction["reactants"]))
-            target = tuple(sorted(values_by_time[t2][index] for index in reaction["products"]))
-            if source == target:
-                continue
 
-            edge = (source, target)
-            edge_counts[edge] += 1
-            edge_simulations[edge].add(simulation.index)
-            edge_simulation_counts[edge][simulation.index] += 1
-            edge_orders[edge] = min(edge_orders.get(edge, order), order)
-            order += 1
+def _pathway_values_by_time(simulation, notation: str):
+    """Return molecule labels by timestep for one simulation and notation."""
 
-    if not edge_counts:
-        return []
+    if simulation.smiles is None or simulation.smiles_id is None:
+        return None
+    if notation == "formula":
+        if simulation.chem_formulas is None:
+            return None
+        return simulation.chem_formulas
+    return simulation.smiles
+
+
+def _collect_simulation_pathway_edges(
+    simulation,
+    values_by_time,
+    timesteps: list[int],
+    edge_data: PathwayEdgeData,
+    order: int,
+) -> int:
+    """Add connected-pathway edges for one simulation and return next order."""
+
+    timestep_positions = {timestep: index for index, timestep in enumerate(timesteps)}
+    initial_timestep = timesteps[1] if len(timesteps) > 1 else timesteps[0]
+    initial_position = timestep_positions[initial_timestep]
+
+    for t1, t2, reaction in _iter_reactions(simulation.smiles, simulation.smiles_id):
+        if timestep_positions[t1] < initial_position:
+            continue
+        source = tuple(sorted(values_by_time[t1][index] for index in reaction["reactants"]))
+        target = tuple(sorted(values_by_time[t2][index] for index in reaction["products"]))
+        if source == target:
+            continue
+
+        edge = (source, target)
+        edge_data.edge_counts[edge] += 1
+        edge_data.edge_simulations[edge].add(simulation.index)
+        edge_data.edge_simulation_counts[edge][simulation.index] += 1
+        edge_data.edge_orders[edge] = min(edge_data.edge_orders.get(edge, order), order)
+        order += 1
+    return order
+
+
+def _filter_pathway_edge_data(edge_data: PathwayEdgeData, min_count: int) -> PathwayEdgeData:
+    """Filter edge data by minimum total count."""
 
     edge_counts, edge_simulations, edge_simulation_counts, edge_orders = _filter_pathway_edges_by_count(
-        edge_counts,
-        edge_simulations,
-        edge_simulation_counts,
-        edge_orders,
+        edge_data.edge_counts,
+        edge_data.edge_simulations,
+        edge_data.edge_simulation_counts,
+        edge_data.edge_orders,
         min_count,
     )
-    if not edge_counts:
-        return []
-
-    groups = _reachable_pathway_groups(
-        edge_counts,
-        edge_simulations,
-        edge_simulation_counts,
-        edge_orders,
-        initial_species,
+    return PathwayEdgeData(
+        initial_species=edge_data.initial_species,
+        edge_counts=edge_counts,
+        edge_simulations=edge_simulations,
+        edge_simulation_counts=edge_simulation_counts,
+        edge_orders=edge_orders,
     )
-    if not groups:
-        return []
+
+
+def _connected_pathways_from_groups(
+    groups: list[dict[str, object]],
+    initial_species: set[str],
+) -> list[ConnectedReactionPathway]:
+    """Build connected pathway data objects from oriented reaction groups."""
+
     steps = _pathway_steps_from_groups(groups)
     return [
         ConnectedReactionPathway(

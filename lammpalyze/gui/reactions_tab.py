@@ -36,6 +36,8 @@ class ReactionTabMixin:
             *simulation_columns,
             "first_simulation",
             "first_timesteps",
+            "first_reactant_atom_ids",
+            "first_product_atom_ids",
             "reaction",
         )
         self._reaction_table_heading_labels = {
@@ -43,6 +45,8 @@ class ReactionTabMixin:
             "count": "Total",
             "first_simulation": "First simulation",
             "first_timesteps": "First timesteps",
+            "first_reactant_atom_ids": "Reactant atom IDs",
+            "first_product_atom_ids": "Product atom IDs",
             "reaction": "Reaction path (SMILES)",
             **{
                 column: f"Simulation {index}"
@@ -73,6 +77,8 @@ class ReactionTabMixin:
             self.reaction_table.column(column, width=105, minwidth=90, anchor="e", stretch=False)
         self.reaction_table.column("first_simulation", width=125, minwidth=105, anchor="e", stretch=False)
         self.reaction_table.column("first_timesteps", width=155, minwidth=125, anchor="center", stretch=False)
+        self.reaction_table.column("first_reactant_atom_ids", width=170, minwidth=130, anchor="w", stretch=False)
+        self.reaction_table.column("first_product_atom_ids", width=170, minwidth=130, anchor="w", stretch=False)
         self.reaction_table.column("reaction", width=980, minwidth=360, anchor="w", stretch=True)
 
         y_scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.reaction_table.yview)
@@ -136,6 +142,8 @@ class ReactionTabMixin:
                 "count": path.count,
                 "first_simulation": "",
                 "first_timesteps": "",
+                "first_reactant_atom_ids": "",
+                "first_product_atom_ids": "",
                 "reaction": path.reaction,
             }
             if path.reaction in self._reaction_occurrences_by_path:
@@ -144,6 +152,8 @@ class ReactionTabMixin:
                 row["first_timesteps"] = (
                     f"{occurrence.timestep_reactants} -> {occurrence.timestep_products}"
                 )
+                row["first_reactant_atom_ids"] = ", ".join(occurrence.reactant_atom_ids)
+                row["first_product_atom_ids"] = ", ".join(occurrence.product_atom_ids)
             for index, column in zip(
                 self._reaction_simulation_indices,
                 self._reaction_table_simulation_columns,
