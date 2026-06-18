@@ -7,6 +7,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from lammpalyze.gui.helpers import reaction_path_display_order
 from lammpalyze.gui.molecule_tab import MOLECULE_THUMBNAIL_SIZE
 from lammpalyze.ovito import OvitoNotAvailableError, create_reaction_scene, launch_ovito_scene, normalize_reaction_path
 from lammpalyze.reactions import format_connected_reaction_pathways
@@ -27,17 +28,38 @@ class ReactionTabMixin:
         panes.add(preview_frame, weight=2)
 
         simulation_columns = [f"simulation_{index}" for index in self._reaction_simulation_indices]
-        columns = ("count", *simulation_columns, "reaction")
+        self._reaction_table_simulation_columns = simulation_columns
+        columns = ("reaction_id", "count", *simulation_columns, "reaction")
+        self._reaction_table_heading_labels = {
+            "reaction_id": "ID",
+            "count": "Total",
+            "reaction": "Reaction path (SMILES)",
+            **{
+                column: f"Simulation {index}"
+                for column, index in zip(simulation_columns, self._reaction_simulation_indices, strict=False)
+            },
+        }
+        self._reaction_table_sort_column = ""
+        self._reaction_table_sort_descending = False
+
+        filter_frame = ttk.Frame(table_frame)
+        filter_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+        ttk.Label(filter_frame, text="SMILES filter").pack(side="left", padx=(0, 8))
+        self.reaction_path_filter = tk.StringVar()
+        self.reaction_path_filter.trace_add("write", lambda *_args: self._refresh_reaction_table())
+        filter_entry = ttk.Entry(filter_frame, textvariable=self.reaction_path_filter)
+        filter_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ttk.Button(filter_frame, text="Clear", command=self._clear_reaction_path_filter).pack(side="right")
+
         self.reaction_table = ttk.Treeview(
             table_frame,
             columns=columns,
             show="headings",
         )
-        self.reaction_table.heading("count", text="Total")
-        self.reaction_table.heading("reaction", text="Reaction path (SMILES)")
+        self._refresh_reaction_table_headings()
+        self.reaction_table.column("reaction_id", width=70, minwidth=55, anchor="center", stretch=False)
         self.reaction_table.column("count", width=90, minwidth=70, anchor="e", stretch=False)
         for column, index in zip(simulation_columns, self._reaction_simulation_indices, strict=False):
-            self.reaction_table.heading(column, text=f"Simulation {index}")
             self.reaction_table.column(column, width=105, minwidth=90, anchor="e", stretch=False)
         self.reaction_table.column("reaction", width=980, minwidth=360, anchor="w", stretch=True)
 
@@ -45,29 +67,20 @@ class ReactionTabMixin:
         x_scrollbar = ttk.Scrollbar(table_frame, orient="horizontal", command=self.reaction_table.xview)
         self.reaction_table.configure(yscrollcommand=y_scrollbar.set, xscrollcommand=x_scrollbar.set)
 
-        self.reaction_table.grid(row=0, column=0, sticky="nsew")
-        y_scrollbar.grid(row=0, column=1, sticky="ns")
-        x_scrollbar.grid(row=1, column=0, sticky="ew")
-        table_frame.rowconfigure(0, weight=1)
+        self.reaction_table.grid(row=1, column=0, sticky="nsew")
+        y_scrollbar.grid(row=1, column=1, sticky="ns")
+        x_scrollbar.grid(row=2, column=0, sticky="ew")
+        table_frame.rowconfigure(1, weight=1)
         table_frame.columnconfigure(0, weight=1)
 
-        for path in self._reaction_paths:
-            per_simulation_counts = self._reaction_counts_by_simulation.get(path.reaction, {})
-            values = (
-                path.count,
-                *[
-                    per_simulation_counts.get(index, 0)
-                    for index in self._reaction_simulation_indices
-                ],
-                path.reaction,
-            )
-            self.reaction_table.insert("", "end", values=values)
+        self._reaction_table_rows = self._build_reaction_table_rows()
+        self._refresh_reaction_table()
         self.reaction_table.bind("<<TreeviewSelect>>", self._sync_reaction_path_copy_field)
         self.reaction_table.bind("<Control-c>", self._copy_selected_reaction_path)
         self.reaction_table.bind("<Control-C>", self._copy_selected_reaction_path)
 
         copy_frame = ttk.Frame(table_frame)
-        copy_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        copy_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         ttk.Label(copy_frame, text="Selected reaction path").pack(anchor="w")
         self.reaction_path_copy_value = tk.StringVar()
         self.reaction_path_copy_entry = ttk.Entry(
@@ -90,11 +103,127 @@ class ReactionTabMixin:
         reaction_path_scrollbar.pack(side="right", fill="y")
         self.reaction_path_canvas.configure(yscrollcommand=reaction_path_scrollbar.set)
 
+        self._select_first_reaction_table_row()
+        self._sync_reaction_path_copy_field()
+
+    def _build_reaction_table_rows(self) -> list[dict[str, object]]:
+        """Build default reaction table rows with reverse paths adjacent."""
+
+        ordered_paths, reaction_identifiers = reaction_path_display_order(self._reaction_paths)
+        rows = []
+        for path in ordered_paths:
+            per_simulation_counts = self._reaction_counts_by_simulation.get(path.reaction, {})
+            row = {
+                "reaction_id": reaction_identifiers[path.reaction],
+                "count": path.count,
+                "reaction": path.reaction,
+            }
+            for index, column in zip(
+                self._reaction_simulation_indices,
+                self._reaction_table_simulation_columns,
+                strict=False,
+            ):
+                row[column] = per_simulation_counts.get(index, 0)
+            rows.append(row)
+        return rows
+
+    def _refresh_reaction_table_headings(self) -> None:
+        """Refresh sortable reaction table heading labels and commands."""
+
+        for column, label in self._reaction_table_heading_labels.items():
+            if column == self._reaction_table_sort_column:
+                direction = "desc" if self._reaction_table_sort_descending else "asc"
+                label = f"{label} ({direction})"
+            self.reaction_table.heading(
+                column,
+                text=label,
+                command=lambda selected_column=column: self._sort_reaction_table(selected_column),
+            )
+
+    def _sort_reaction_table(self, column: str) -> None:
+        """Sort reaction table rows by ``column``, toggling direction on repeats."""
+
+        if self._reaction_table_sort_column == column:
+            self._reaction_table_sort_descending = not self._reaction_table_sort_descending
+        else:
+            self._reaction_table_sort_column = column
+            self._reaction_table_sort_descending = False
+        self._refresh_reaction_table_headings()
+        self._refresh_reaction_table()
+
+    def _refresh_reaction_table(self, _event=None) -> None:
+        """Repopulate the reaction table after filtering or sorting."""
+
+        selected_reaction = self._selected_reaction_path_from_table()
+        for item_id in self.reaction_table.get_children():
+            self.reaction_table.delete(item_id)
+
+        rows = [row for row in self._reaction_table_rows if self._reaction_path_matches_filter(row)]
+        if self._reaction_table_sort_column:
+            rows = sorted(
+                rows,
+                key=lambda row: self._reaction_table_sort_key(row, self._reaction_table_sort_column),
+                reverse=self._reaction_table_sort_descending,
+            )
+
+        selected_item = ""
+        columns = self.reaction_table["columns"]
+        for row in rows:
+            values = tuple(row[column] for column in columns)
+            item_id = self.reaction_table.insert("", "end", values=values)
+            if row["reaction"] == selected_reaction:
+                selected_item = item_id
+
+        if selected_item:
+            self.reaction_table.selection_set(selected_item)
+            self.reaction_table.focus(selected_item)
+        else:
+            self._select_first_reaction_table_row()
+
+        if hasattr(self, "reaction_path_copy_value"):
+            self._sync_reaction_path_copy_field()
+
+    def _reaction_path_matches_filter(self, row: dict[str, object]) -> bool:
+        """Return whether ``row`` contains the selected SMILES filter."""
+
+        query = self.reaction_path_filter.get().strip().lower()
+        if not query:
+            return True
+
+        reaction = str(row["reaction"])
+        try:
+            reactants, products = reaction_smiles_groups(reaction)
+        except ValueError:
+            return query in reaction.lower()
+        return any(query in smiles.lower() for smiles in [*reactants, *products])
+
+    def _reaction_table_sort_key(self, row: dict[str, object], column: str):
+        """Return a natural sort key for the selected reaction table column."""
+
+        value = row[column]
+        if column == "reaction_id":
+            identifier = str(value)
+            base = identifier.removesuffix("*")
+            try:
+                return int(base), identifier.endswith("*")
+            except ValueError:
+                return identifier, False
+        if column == "count" or column in self._reaction_table_simulation_columns:
+            return int(value)
+        return str(value).lower()
+
+    def _clear_reaction_path_filter(self) -> None:
+        """Clear the reaction path SMILES filter."""
+
+        self.reaction_path_filter.set("")
+
+    def _select_first_reaction_table_row(self) -> None:
+        """Select the first visible reaction table row, if one exists."""
+
         children = self.reaction_table.get_children()
         if children:
             self.reaction_table.selection_set(children[0])
             self.reaction_table.focus(children[0])
-            self._sync_reaction_path_copy_field()
 
     def _build_connected_pathways_tab(self, parent: ttk.Frame) -> None:
         """Create the connected reaction pathway table and outline."""
@@ -466,7 +595,12 @@ class ReactionTabMixin:
         self.reaction_path_gallery.columnconfigure(2, weight=1, uniform="reaction_side")
         self.reaction_path_gallery.rowconfigure(0, weight=1)
 
-        ttk.Label(arrow_frame, text=arrow, anchor="center").pack(expand=True, fill="both", pady=96)
+        ttk.Label(
+            arrow_frame,
+            text=arrow,
+            anchor="center",
+            font=("TkDefaultFont", 28, "bold"),
+        ).pack(expand=True, fill="both", pady=96)
         self._render_smiles_gallery(
             reactant_frame,
             reactants,

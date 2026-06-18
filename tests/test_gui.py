@@ -1,7 +1,13 @@
 """Tests for GUI data helpers."""
 
 from lammpalyze.analysis import LoadedSimulation
-from lammpalyze.gui import connected_reaction_pathway_data, molecule_render_size, reaction_path_table_data
+from lammpalyze.gui import (
+    connected_reaction_pathway_data,
+    molecule_render_size,
+    reaction_path_display_order,
+    reaction_path_ids,
+    reaction_path_table_data,
+)
 from lammpalyze.gui.helpers import (
     image_output_path,
     parse_reference_lines,
@@ -9,6 +15,7 @@ from lammpalyze.gui.helpers import (
     parse_timestep_values,
     suffixed_image_output_path,
 )
+from lammpalyze.reactions import ReactionPath
 
 
 def test_molecule_render_size_follows_available_area():
@@ -42,6 +49,29 @@ def test_reaction_path_table_data_counts_paths_per_simulation():
     assert counts["['AB'] -> ['A', 'B']"] == {1: 1, 2: 1}
 
 
+def test_reaction_path_display_order_groups_reverse_reactions():
+    """Place reverse reactions next to their original path by default."""
+
+    paths = [
+        ReactionPath("['AB'] -> ['A', 'B']", 8),
+        ReactionPath("['C'] -> ['D']", 4),
+        ReactionPath("['A', 'B'] -> ['AB']", 3),
+    ]
+    ordered_paths, identifiers = reaction_path_display_order(paths)
+
+    assert [path.reaction for path in ordered_paths] == [
+        "['AB'] -> ['A', 'B']",
+        "['A', 'B'] -> ['AB']",
+        "['C'] -> ['D']",
+    ]
+    assert identifiers == {
+        "['AB'] -> ['A', 'B']": "1",
+        "['A', 'B'] -> ['AB']": "1*",
+        "['C'] -> ['D']": "2",
+    }
+    assert reaction_path_ids(paths) == identifiers
+
+
 def test_connected_reaction_pathway_data_uses_formula_notation():
     """Build connected pathway rows for the GUI helper."""
 
@@ -61,7 +91,7 @@ def test_connected_reaction_pathway_data_uses_formula_notation():
     assert pathways[0].steps[0].target == "LiC3H4O3"
     assert pathways[0].steps[0].counts_by_simulation == ((1, 1),)
 
-    assert connected_reaction_pathway_data(simulations, notation="formula", min_count=2) == []
+    assert not connected_reaction_pathway_data(simulations, notation="formula", min_count=2)
 
 
 def test_image_output_path_defaults_to_png():
@@ -82,18 +112,18 @@ def test_parse_reference_lines_accepts_common_separators():
     """Parse GUI reference-line entries split by commas, spaces, or semicolons."""
 
     assert parse_reference_lines("1, 2; 3\n4") == [1.0, 2.0, 3.0, 4.0]
-    assert parse_reference_lines("  ") == []
+    assert not parse_reference_lines("  ")
 
 
 def test_parse_simulation_groups_accepts_semicolon_separated_groups():
     """Parse thermo average groups while preserving group order."""
 
     assert parse_simulation_groups("1, 3; 2 4; 4,4") == [[1, 3], [2, 4], [4]]
-    assert parse_simulation_groups("  ") == []
+    assert not parse_simulation_groups("  ")
 
 
 def test_parse_timestep_values_accepts_common_list_syntax():
     """Parse species timestep exclusions from common list formats."""
 
     assert parse_timestep_values("(200, 3400); 4200") == [200, 3400, 4200]
-    assert parse_timestep_values("  ") == []
+    assert not parse_timestep_values("  ")

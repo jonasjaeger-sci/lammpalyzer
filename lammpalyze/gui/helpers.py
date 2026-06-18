@@ -11,6 +11,7 @@ from lammpalyze.reactions import (
     build_connected_reaction_pathways,
     build_reaction_path_table,
 )
+from lammpalyze.smiles import reaction_smiles_groups, reaction_smiles_path
 
 DEFAULT_IMAGE_EXTENSION = ".png"
 IMAGE_FILETYPES = (
@@ -49,6 +50,51 @@ def reaction_path_table_data(simulations) -> tuple[list[int], list[ReactionPath]
     """Return simulation indexes, total paths, and per-simulation counts."""
 
     return build_reaction_path_table(simulations)
+
+
+def reaction_path_ids(paths: list[ReactionPath]) -> dict[str, str]:
+    """Assign stable display IDs, marking reverse reactions with ``*``."""
+
+    _, identifiers = reaction_path_display_order(paths)
+    return identifiers
+
+
+def reaction_path_display_order(paths: list[ReactionPath]) -> tuple[list[ReactionPath], dict[str, str]]:
+    """Return reaction paths grouped with their reverse paths, plus display IDs."""
+
+    path_by_reaction = {path.reaction: path for path in paths}
+    identifiers = {}
+    ordered_paths = []
+    seen = set()
+    next_identifier = 1
+
+    for path in paths:
+        if path.reaction in seen:
+            continue
+
+        identifiers[path.reaction] = str(next_identifier)
+        ordered_paths.append(path)
+        seen.add(path.reaction)
+
+        reverse_reaction = _reverse_reaction_path(path.reaction)
+        if reverse_reaction in path_by_reaction and reverse_reaction not in seen:
+            identifiers[reverse_reaction] = f"{next_identifier}*"
+            ordered_paths.append(path_by_reaction[reverse_reaction])
+            seen.add(reverse_reaction)
+
+        next_identifier += 1
+
+    return ordered_paths, identifiers
+
+
+def _reverse_reaction_path(reaction: str) -> str:
+    """Return the formatted reverse reaction path, or an empty string."""
+
+    try:
+        reactants, products = reaction_smiles_groups(reaction)
+    except ValueError:
+        return ""
+    return reaction_smiles_path(reactants=products, products=reactants)
 
 
 def connected_reaction_pathway_data(
