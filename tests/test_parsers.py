@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from lammpalyze.parsers import eval_species, eval_thermo, iter_lammpstrj_frames
+from lammpalyze.parsers import copy_lammpstrj_until, eval_species, eval_thermo, iter_lammpstrj_frames
 
 
 def test_eval_species_handles_changing_headers(tmp_path: Path):
@@ -87,3 +87,47 @@ ITEM: ATOMS id type q xu yu zu
     assert frames[0].atoms[0].atom_id == 2
     assert frames[0].atoms[0].atom_type == 3
     assert (frames[0].atoms[0].x, frames[0].atoms[0].y, frames[0].atoms[0].z) == (4.0, 5.0, 6.0)
+
+
+def test_copy_lammpstrj_until_preserves_raw_frames(tmp_path: Path):
+    """Copy trajectory frames from the beginning through a selected timestep."""
+
+    trajectory = tmp_path / "traj.lammpstrj"
+    text = """ITEM: TIMESTEP
+0
+ITEM: NUMBER OF ATOMS
+1
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ATOMS id type x y z
+1 1 1 2 3
+ITEM: TIMESTEP
+10
+ITEM: NUMBER OF ATOMS
+1
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ATOMS id type x y z
+1 1 4 5 6
+ITEM: TIMESTEP
+20
+ITEM: NUMBER OF ATOMS
+1
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ATOMS id type x y z
+1 1 7 8 9
+"""
+    trajectory.write_text(text, encoding="utf-8")
+    output = tmp_path / "cut.lammpstrj"
+
+    frames = copy_lammpstrj_until(trajectory, output, 10)
+
+    assert frames == 2
+    assert output.read_text(encoding="utf-8") == "\n".join(text.splitlines()[:20]) + "\n"

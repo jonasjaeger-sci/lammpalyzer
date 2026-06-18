@@ -71,6 +71,61 @@ def list_lammpstrj_timesteps(filename: str | Path) -> list[int]:
     return timesteps
 
 
+def copy_lammpstrj_until(
+    source: str | Path,
+    destination: str | Path,
+    end_timestep: int,
+) -> int:
+    """Copy raw trajectory frames from the beginning through ``end_timestep``."""
+
+    frames_written = 0
+    with Path(source).open(encoding="utf-8") as input_handle, Path(destination).open(
+        "w",
+        encoding="utf-8",
+    ) as output_handle:
+        while True:
+            line = input_handle.readline()
+            if not line:
+                break
+            if not line.startswith("ITEM: TIMESTEP"):
+                continue
+
+            timestep_line = input_handle.readline()
+            if not timestep_line:
+                raise ValueError(f"Malformed trajectory frame in {source}")
+            timestep = int(timestep_line.strip())
+            frame_lines = [line, timestep_line]
+
+            number_header = input_handle.readline()
+            if not number_header.startswith("ITEM: NUMBER OF ATOMS"):
+                raise ValueError(f"Malformed trajectory frame at timestep {timestep} in {source}")
+            n_atoms_line = input_handle.readline()
+            n_atoms = int(n_atoms_line.strip())
+            frame_lines.extend([number_header, n_atoms_line])
+
+            bounds_header = input_handle.readline()
+            if not bounds_header.startswith("ITEM: BOX BOUNDS"):
+                raise ValueError(f"Missing box bounds at timestep {timestep} in {source}")
+            frame_lines.append(bounds_header)
+            frame_lines.extend(input_handle.readline() for _ in range(3))
+
+            atoms_header = input_handle.readline()
+            if not atoms_header.startswith("ITEM: ATOMS"):
+                raise ValueError(f"Missing atom table at timestep {timestep} in {source}")
+            frame_lines.append(atoms_header)
+            frame_lines.extend(input_handle.readline() for _ in range(n_atoms))
+
+            if timestep <= end_timestep:
+                output_handle.writelines(frame_lines)
+                frames_written += 1
+            if timestep >= end_timestep:
+                break
+
+    if frames_written == 0:
+        raise ValueError(f"No trajectory frames found through timestep {end_timestep} in {source}")
+    return frames_written
+
+
 def iter_lammpstrj_frames(
     filename: str | Path,
     timestep_range: tuple[int, int] | None = None,

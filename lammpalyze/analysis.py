@@ -109,6 +109,21 @@ class LammpalyzeProject:
                 return simulation, occurrences[0]
         raise ValueError(f"No occurrence found for reaction path: {reaction}")
 
+    def first_reaction_occurrences(self) -> dict[str, tuple[LoadedSimulation, ReactionOccurrence]]:
+        """Return the first concrete event for each observed reaction path."""
+
+        occurrences_by_reaction = {}
+        for simulation in self.simulations:
+            if simulation.smiles is None or simulation.smiles_id is None:
+                continue
+            for occurrence in find_reaction_occurrences(
+                simulation.smiles,
+                simulation.smiles_id,
+                simulation_index=simulation.index,
+            ):
+                occurrences_by_reaction.setdefault(occurrence.reaction, (simulation, occurrence))
+        return occurrences_by_reaction
+
     def simulation(self, index: int) -> LoadedSimulation:
         """Look up one loaded simulation by the index used in ``lmplyz.inp``."""
 

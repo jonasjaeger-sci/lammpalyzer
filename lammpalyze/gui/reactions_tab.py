@@ -10,6 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from lammpalyze.gui.helpers import reaction_path_display_order
 from lammpalyze.gui.molecule_tab import MOLECULE_THUMBNAIL_SIZE
 from lammpalyze.ovito import OvitoNotAvailableError, create_reaction_scene, launch_ovito_scene, normalize_reaction_path
+from lammpalyze.parsers import copy_lammpstrj_until
 from lammpalyze.reactions import format_connected_reaction_pathways
 from lammpalyze.smiles import reaction_smiles_groups, reaction_smiles_path
 
@@ -29,10 +30,19 @@ class ReactionTabMixin:
 
         simulation_columns = [f"simulation_{index}" for index in self._reaction_simulation_indices]
         self._reaction_table_simulation_columns = simulation_columns
-        columns = ("reaction_id", "count", *simulation_columns, "reaction")
+        columns = (
+            "reaction_id",
+            "count",
+            *simulation_columns,
+            "first_simulation",
+            "first_timesteps",
+            "reaction",
+        )
         self._reaction_table_heading_labels = {
             "reaction_id": "ID",
             "count": "Total",
+            "first_simulation": "First simulation",
+            "first_timesteps": "First timesteps",
             "reaction": "Reaction path (SMILES)",
             **{
                 column: f"Simulation {index}"
@@ -61,6 +71,8 @@ class ReactionTabMixin:
         self.reaction_table.column("count", width=90, minwidth=70, anchor="e", stretch=False)
         for column, index in zip(simulation_columns, self._reaction_simulation_indices, strict=False):
             self.reaction_table.column(column, width=105, minwidth=90, anchor="e", stretch=False)
+        self.reaction_table.column("first_simulation", width=125, minwidth=105, anchor="e", stretch=False)
+        self.reaction_table.column("first_timesteps", width=155, minwidth=125, anchor="center", stretch=False)
         self.reaction_table.column("reaction", width=980, minwidth=360, anchor="w", stretch=True)
 
         y_scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.reaction_table.yview)
@@ -73,6 +85,7 @@ class ReactionTabMixin:
         table_frame.rowconfigure(1, weight=1)
         table_frame.columnconfigure(0, weight=1)
 
+        self._reaction_occurrences_by_path = self.project.first_reaction_occurrences()
         self._reaction_table_rows = self._build_reaction_table_rows()
         self._refresh_reaction_table()
         self.reaction_table.bind("<<TreeviewSelect>>", self._sync_reaction_path_copy_field)
@@ -90,6 +103,11 @@ class ReactionTabMixin:
         )
         self.reaction_path_copy_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(copy_frame, text="Copy", command=self._copy_selected_reaction_path).pack(side="right")
+        ttk.Button(
+            copy_frame,
+            text="Export cut trajectory",
+            command=self._export_selected_reaction_cut_trajectory,
+        ).pack(side="right", padx=(0, 8))
 
         self.reaction_path_canvas, self.reaction_path_gallery = self._build_scrollable_molecule_gallery(
             preview_frame
@@ -116,8 +134,16 @@ class ReactionTabMixin:
             row = {
                 "reaction_id": reaction_identifiers[path.reaction],
                 "count": path.count,
+                "first_simulation": "",
+                "first_timesteps": "",
                 "reaction": path.reaction,
             }
+            if path.reaction in self._reaction_occurrences_by_path:
+                simulation, occurrence = self._reaction_occurrences_by_path[path.reaction]
+                row["first_simulation"] = simulation.index
+                row["first_timesteps"] = (
+                    f"{occurrence.timestep_reactants} -> {occurrence.timestep_products}"
+                )
             for index, column in zip(
                 self._reaction_simulation_indices,
                 self._reaction_table_simulation_columns,
@@ -205,12 +231,20 @@ class ReactionTabMixin:
             identifier = str(value)
             base = identifier.removesuffix("*")
             try:
-                return int(base), identifier.endswith("*")
+                key = (int(base), identifier.endswith("*"))
             except ValueError:
-                return identifier, False
-        if column == "count" or column in self._reaction_table_simulation_columns:
-            return int(value)
-        return str(value).lower()
+                key = (identifier, False)
+        elif column == "count" or column in [*self._reaction_table_simulation_columns, "first_simulation"]:
+            key = -1 if value == "" else int(value)
+        elif column == "first_timesteps":
+            start, _, end = str(value).partition(" -> ")
+            try:
+                key = (int(start), int(end))
+            except ValueError:
+                key = (-1, -1)
+        else:
+            key = str(value).lower()
+        return key
 
     def _clear_reaction_path_filter(self) -> None:
         """Clear the reaction path SMILES filter."""
@@ -441,6 +475,58 @@ class ReactionTabMixin:
             self.root.update_idletasks()
             self.reaction_path_copy_value.set(reaction)
         return "break"
+
+    def _export_selected_reaction_cut_trajectory(self) -> None:
+        """Export the selected reaction's trajectory through its first product timestep."""
+
+        try:
+            reaction = normalize_reaction_path(self._selected_reaction_path_from_table())
+            if not reaction:
+                raise ValueError("Select a reaction path before exporting.")
+            if reaction not in self._reaction_occurrences_by_path:
+                raise ValueError(f"No occurrence found for reaction path: {reaction}")
+
+            simulation, occurrence = self._reaction_occurrences_by_path[reaction]
+            if simulation.trajectory_path is None:
+                raise ValueError(f"Simulation {simulation.index} has no trajectory file.")
+
+            reaction_id = self._selected_reaction_table_value("reaction_id") or "reaction"
+            filename = filedialog.asksaveasfilename(
+                title="Export cut trajectory",
+                initialfile=(
+                    f"reaction_{reaction_id}_sim{simulation.index}_"
+                    f"through_{occurrence.timestep_products}.lammpstrj"
+                ),
+                defaultextension=".lammpstrj",
+                filetypes=(("LAMMPS trajectory", "*.lammpstrj"), ("All files", "*.*")),
+            )
+            if not filename:
+                return
+
+            output_path = Path(filename)
+            frames = copy_lammpstrj_until(
+                simulation.trajectory_path,
+                output_path,
+                occurrence.timestep_products,
+            )
+            messagebox.showinfo(
+                "Trajectory exported",
+                (
+                    f"Exported {frames} frame(s) from simulation {simulation.index} "
+                    f"through timestep {occurrence.timestep_products} to {output_path}"
+                ),
+            )
+        except Exception as exc:  # pragma: no cover - GUI feedback.
+            messagebox.showerror("Trajectory export failed", str(exc))
+
+    def _selected_reaction_table_value(self, column: str) -> str:
+        """Return one column value from the selected reaction table row."""
+
+        selected = self.reaction_table.selection()
+        item_id = selected[0] if selected else self.reaction_table.focus()
+        if not item_id:
+            return ""
+        return self.reaction_table.set(item_id, column)
 
     def _refresh_connected_pathways(self, _event=None) -> None:
         """Refresh connected pathway table and text outline for the notation."""

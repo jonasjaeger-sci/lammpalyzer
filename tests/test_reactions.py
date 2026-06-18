@@ -2,8 +2,7 @@
 
 from pathlib import Path
 
-from lammpalyze.analysis import LoadedSimulation
-from lammpalyze.analysis import load_project
+from lammpalyze.analysis import LammpalyzeProject, LoadedSimulation, load_project
 from lammpalyze.config import parse_input_file
 from lammpalyze.reactions import (
     build_connected_reaction_pathways,
@@ -35,6 +34,29 @@ def test_count_reaction_paths_counts_split_reaction():
         ("['AB'] -> ['A', 'B']", 1),
         ("['A', 'B'] -> ['AB']", 1),
     ]
+
+
+def test_project_first_reaction_occurrences_report_simulation_and_timesteps():
+    """Collect first occurrence metadata for every observed reaction path."""
+
+    project = LammpalyzeProject(
+        config=None,
+        simulations=[
+            LoadedSimulation(
+                index=4,
+                smiles={0: ["AB"], 10: ["A", "B"], 20: ["AB"]},
+                smiles_id={0: [["1", "2"]], 10: [["1"], ["2"]], 20: [["1", "2"]]},
+            )
+        ],
+    )
+
+    occurrences = project.first_reaction_occurrences()
+
+    simulation, occurrence = occurrences["['AB'] -> ['A', 'B']"]
+    assert simulation.index == 4
+    assert occurrence.simulation_index == 4
+    assert occurrence.timestep_reactants == 0
+    assert occurrence.timestep_products == 10
 
 
 def test_count_reaction_paths_respects_duplicate_species_stoichiometry():
@@ -191,7 +213,7 @@ def test_connected_formula_pathways_skip_formula_equivalent_smiles_changes():
     formula_pathways = build_connected_reaction_pathways(simulations, notation="formula")
     smiles_pathways = build_connected_reaction_pathways(simulations, notation="smiles")
 
-    assert formula_pathways == []
+    assert not formula_pathways
     assert len(smiles_pathways) == 1
     assert smiles_pathways[0].steps[0].source == "[Li][Li][Li]"
     assert smiles_pathways[0].steps[0].target == "[Li]1[Li][Li]1"

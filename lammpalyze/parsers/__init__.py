@@ -11,6 +11,7 @@ from lammpalyze.parsers.models import ReaxBond, TrajectoryAtom, TrajectoryFrame
 from lammpalyze.parsers.species import eval_species
 from lammpalyze.parsers.thermo import eval_thermo
 from lammpalyze.parsers.trajectory import (
+    copy_lammpstrj_until,
     iter_lammpstrj_frames,
     list_lammpstrj_timesteps,
     parse_traj,
@@ -22,6 +23,7 @@ __all__ = [
     "TrajectoryAtom",
     "TrajectoryFrame",
     "bo_to_rdkit_bond",
+    "copy_lammpstrj_until",
     "eval_species",
     "eval_thermo",
     "first_appearance",
