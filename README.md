@@ -108,6 +108,23 @@ for pairs without their own row; if it is omitted, the fallback is `0.3`. Bond
 orders below the applicable cutoff are ignored, while values equal to it are
 retained.
 
+### How SMILES Are Constructed
+
+For every ReaxFF bond-file frame, atom types are mapped through `element_list`,
+bonds below their configured cutoff are removed, and retained bond orders are
+mapped to single (`<1.5`), double (`1.5` to `<2.5`), or triple (`>=2.5`) RDKit
+bonds. Each connected component becomes one canonical SMILES string. Implicit
+hydrogens are disabled, so hydrogen atoms come from the simulation and are
+written explicitly.
+
+These SMILES are labels for the thresholded snapshot graph, not validated Lewis
+structures. Coordinates, partial charges, total atom bond order, and lone-pair
+values are currently ignored; formal charges, aromaticity, and stereochemistry
+are not inferred. Consequently, cutoff crossings and short-lived or unusual
+ReaxFF configurations can produce fragmented, high-valence, or otherwise
+chemically implausible strings. Interpret reaction counts with the chosen
+cutoffs and bond-file sampling interval in mind.
+
 File entries use a short prefix plus an optional simulation number. For example,
 `BF1`, `SF1`, `ThermoF1`, and `TrajF1` are grouped as simulation 1; `BF2`,
 `SF2`, `ThermoF2`, and `TrajF2` are grouped as simulation 2. If no number is
