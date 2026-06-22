@@ -2,7 +2,15 @@
 
 from pathlib import Path
 
-from lammpalyze.parsers import copy_lammpstrj_until, eval_species, eval_thermo, iter_lammpstrj_frames
+import pytest
+
+from lammpalyze.parsers import (
+    copy_lammpstrj_until,
+    eval_species,
+    eval_thermo,
+    iter_lammpstrj_frames,
+    parse_bonds,
+)
 
 
 def test_eval_species_handles_changing_headers(tmp_path: Path):
@@ -131,3 +139,51 @@ ITEM: ATOMS id type x y z
 
     assert frames == 2
     assert output.read_text(encoding="utf-8") == "\n".join(text.splitlines()[:20]) + "\n"
+
+
+def test_parse_bonds_applies_pair_cutoff_before_rdkit_connectivity(tmp_path: Path):
+    """Exclude a bond below its element-pair cutoff from the molecule graph."""
+
+    pytest.importorskip("rdkit")
+    bond_file = tmp_path / "bonds.reax"
+    bond_file.write_text(
+        """# Timestep 0
+# Number of particles 2
+1 1 1 2 1 0.4 0.4 0 0
+2 2 1 1 1 0.4 0.4 0 0
+""",
+        encoding="utf-8",
+    )
+
+    _, _, default_smiles_atoms, _ = parse_bonds(bond_file, {1: "C", 2: "H"})
+    _, _, filtered_smiles_atoms, _ = parse_bonds(
+        bond_file,
+        {1: "C", 2: "H"},
+        bond_order_cutoffs={(1, 2): 0.5},
+    )
+
+    assert default_smiles_atoms[0] == [["1", "2"]]
+    assert filtered_smiles_atoms[0] == [["1"], ["2"]]
+
+
+def test_parse_bonds_keeps_bond_equal_to_cutoff(tmp_path: Path):
+    """Treat the cutoff as inclusive because only lower orders are excluded."""
+
+    pytest.importorskip("rdkit")
+    bond_file = tmp_path / "bonds.reax"
+    bond_file.write_text(
+        """# Timestep 0
+# Number of particles 2
+1 1 1 2 1 0.5 0.5 0 0
+2 2 1 1 1 0.5 0.5 0 0
+""",
+        encoding="utf-8",
+    )
+
+    _, _, smiles_atoms, _ = parse_bonds(
+        bond_file,
+        {1: "C", 2: "H"},
+        bond_order_cutoffs={(1, 2): 0.5},
+    )
+
+    assert smiles_atoms[0] == [["1", "2"]]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 from itertools import chain
 from pathlib import Path
 
@@ -19,6 +20,9 @@ except ImportError:  # pragma: no cover - depends on optional external package.
 def parse_bonds(
     bond_file: str | Path,
     type_to_element: dict[int, str],
+    *,
+    default_bond_order_cutoff: float = 0.3,
+    bond_order_cutoffs: Mapping[tuple[int, int], float] | None = None,
 ) -> tuple[dict[str, list[str]], dict[int, list[str]], dict[int, list[list[str]]], dict[int, list[str]]]:
     """Parse a ReaxFF bonds file into SMILES and chemical formula data.
 
@@ -28,9 +32,11 @@ def parse_bonds(
 
     _require_rdkit()
     bond_path = Path(bond_file)
+    pair_cutoffs = bond_order_cutoffs or {}
 
     atoms: dict[str, str] = {}
-    bonds: list[tuple[int, int, object]] = []
+    atom_types: dict[str, int] = {}
+    raw_bonds: list[tuple[int, int, float]] = []
     atom_evolution: dict[str, list[str]] = defaultdict(list)
     smiles: dict[int, list[str]] = {}
     smiles_atoms: dict[int, list[list[str]]] = {}
@@ -64,19 +70,25 @@ def parse_bonds(
             atom_type = int(parts[1])
             n_bonds = int(parts[2])
             atoms[parts[0]] = type_to_element[atom_type]
+            atom_types[parts[0]] = atom_type
 
             bonded_atoms = [int(value) for value in parts[3: 3 + n_bonds]]
             bond_orders = [float(value) for value in parts[4 + n_bonds: 4 + 2 * n_bonds]]
             for bonded_id, bond_order in zip(bonded_atoms, bond_orders, strict=False):
                 if atom_id < bonded_id:
-                    bonds.append((atom_id, bonded_id, bo_to_rdkit_bond(bond_order)))
+                    raw_bonds.append((atom_id, bonded_id, bond_order))
 
             counter += 1
             if counter == n_atoms:
                 _store_bond_frame(
                     timestep,
                     atoms,
-                    bonds,
+                    _filtered_rdkit_bonds(
+                        raw_bonds,
+                        atom_types,
+                        default_bond_order_cutoff,
+                        pair_cutoffs,
+                    ),
                     molecule_cache,
                     atom_evolution,
                     smiles,
@@ -84,10 +96,28 @@ def parse_bonds(
                     chem_formulas,
                 )
                 atoms = {}
-                bonds = []
+                atom_types = {}
+                raw_bonds = []
                 counter = 0
 
     return atom_evolution, smiles, smiles_atoms, chem_formulas
+
+
+def _filtered_rdkit_bonds(
+    raw_bonds: list[tuple[int, int, float]],
+    atom_types: dict[str, int],
+    default_cutoff: float,
+    pair_cutoffs: Mapping[tuple[int, int], float],
+) -> list[tuple[int, int, object]]:
+    """Apply atom-type cutoffs before converting retained bonds for RDKit."""
+
+    bonds = []
+    for atom_i, atom_j, bond_order in raw_bonds:
+        pair = tuple(sorted((atom_types[str(atom_i)], atom_types[str(atom_j)])))
+        cutoff = pair_cutoffs.get(pair, default_cutoff)
+        if bond_order >= cutoff:
+            bonds.append((atom_i, atom_j, bo_to_rdkit_bond(bond_order)))
+    return bonds
 
 
 def bo_to_rdkit_bond(bond_order: float):

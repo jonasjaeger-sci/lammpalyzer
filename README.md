@@ -45,6 +45,12 @@ outputs. Relative paths are resolved relative to the input file.
 
 element_list = ["C", "H", "Li", "O"]
 
+# Bond Order cutoffs
+default 0.3
+3 3 0.8
+3 4 0.55
+3 1*2 0.3
+
 # Bond files
 BF1 = bonds_R1.reax
 BF2 = bonds_R2.reax
@@ -70,8 +76,9 @@ atom type 1 is `C`, type 2 is `H`, type 3 is `Li`, and type 4 is `O`.
 
 ### Input Rules
 
-Each useful line in `lmplyz.inp` is either a comment or a `key = value`
-assignment. Comments start with `#`, and blank lines are ignored.
+Most useful lines in `lmplyz.inp` are comments or `key = value` assignments.
+Comments start with `#`, and blank lines are ignored. The optional bond-order
+cutoff section described below uses space-separated values instead.
 
 `element_list` is required and must be written as a Python-style list of element
 symbols:
@@ -79,6 +86,27 @@ symbols:
 ```text
 element_list = ["C", "H", "Li", "O"]
 ```
+
+To omit weak bonds from RDKit molecule construction, add an optional
+`# Bond Order cutoffs` section before the file sections:
+
+```text
+# Bond Order cutoffs
+default 0.5
+1 2 0.3
+3 4 0.55
+3 1*2 0.3
+
+# Bond files
+BF1 = bonds_R1.reax
+```
+
+Each pair row contains two atom types followed by its cutoff. Pairs are
+unordered, so `1 3` and `3 1` configure the same bond. An inclusive range such
+as `1*2` expands to types 1 and 2. The `default` row changes the fallback cutoff
+for pairs without their own row; if it is omitted, the fallback is `0.3`. Bond
+orders below the applicable cutoff are ignored, while values equal to it are
+retained.
 
 File entries use a short prefix plus an optional simulation number. For example,
 `BF1`, `SF1`, `ThermoF1`, and `TrajF1` are grouped as simulation 1; `BF2`,
@@ -161,7 +189,7 @@ Metadata,Value
 input_file,/path/to/lmplyz.inp
 run_date,2026-05-29T15:20:30+02:00
 simulation_ids,1;2
-software_version,1.2.0
+software_version,1.3.0
 
 Reaction,Simulation 1,Simulation 2,Sum
 "['[H][H]'] -> ['[H]', '[H]']",2,1,3

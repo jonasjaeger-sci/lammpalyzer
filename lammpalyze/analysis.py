@@ -163,6 +163,8 @@ def load_project(
             atom_evolution, smiles, smiles_id, chem_formulas = parse_bonds(
                 files.bond,
                 config.type_to_element,
+                default_bond_order_cutoff=config.default_bond_order_cutoff,
+                bond_order_cutoffs=config.bond_order_cutoffs,
             )
             loaded.atom_evolution = atom_evolution
             loaded.smiles = smiles

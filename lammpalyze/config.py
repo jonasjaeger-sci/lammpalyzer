@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import ast
+import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -14,6 +15,11 @@ TOPIC_PREFIXES = {
     "thermo": ("ThermoF", "TF", "ThermoFile"),
     "trajectory": ("TrajF", "TrajectoryF", "TrajectoryFile"),
 }
+DEFAULT_BOND_ORDER_CUTOFF = 0.3
+_BOND_ORDER_CUTOFF_HEADER_RE = re.compile(
+    r"^\s*#?\s*bond[\s_-]+order[\s_-]+cutoffs?\s*$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -34,12 +40,20 @@ class LammpalyzeConfig:
     input_file: Path
     element_list: list[str]
     simulations: list[SimulationFiles]
+    default_bond_order_cutoff: float = DEFAULT_BOND_ORDER_CUTOFF
+    bond_order_cutoffs: dict[tuple[int, int], float] = field(default_factory=dict)
 
     @property
     def type_to_element(self) -> dict[int, str]:
         """Map LAMMPS atom type numbers onto element symbols."""
 
         return {idx + 1: element for idx, element in enumerate(self.element_list)}
+
+    def bond_order_cutoff(self, atom_type_a: int, atom_type_b: int) -> float:
+        """Return the configured cutoff for an unordered atom-type pair."""
+
+        pair = tuple(sorted((atom_type_a, atom_type_b)))
+        return self.bond_order_cutoffs.get(pair, self.default_bond_order_cutoff)
 
 
 def parse_input_file(input_file: str | Path) -> LammpalyzeConfig:
@@ -56,6 +70,10 @@ def parse_input_file(input_file: str | Path) -> LammpalyzeConfig:
 
     assignments = _read_assignments(path)
     element_list = _parse_element_list(assignments)
+    default_bond_order_cutoff, bond_order_cutoffs = _parse_bond_order_cutoffs(
+        path,
+        len(element_list),
+    )
     grouped = _group_paths(assignments, path.parent)
 
     indexes = sorted({idx for topic in grouped.values() for idx in topic})
@@ -75,7 +93,113 @@ def parse_input_file(input_file: str | Path) -> LammpalyzeConfig:
         )
         for idx in indexes
     ]
-    return LammpalyzeConfig(path, element_list, simulations)
+    return LammpalyzeConfig(
+        path,
+        element_list,
+        simulations,
+        default_bond_order_cutoff,
+        bond_order_cutoffs,
+    )
+
+
+def _parse_bond_order_cutoffs(
+    path: Path,
+    n_atom_types: int,
+) -> tuple[float, dict[tuple[int, int], float]]:
+    """Read the optional ``Bond Order cutoffs`` section."""
+
+    default_cutoff = DEFAULT_BOND_ORDER_CUTOFF
+    cutoffs: dict[tuple[int, int], float] = {}
+    in_section = False
+
+    with path.open(encoding="utf-8") as handle:
+        for line_no, raw_line in enumerate(handle, start=1):
+            stripped = raw_line.strip()
+            if not in_section:
+                if _BOND_ORDER_CUTOFF_HEADER_RE.match(stripped):
+                    in_section = True
+                continue
+
+            if not stripped:
+                continue
+            if stripped.startswith("#") or stripped.startswith("---"):
+                break
+
+            value = raw_line.split("#", maxsplit=1)[0].strip()
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*=", value):
+                break
+
+            parts = value.replace("=", " ").split()
+            if parts and parts[0].lower() == "default":
+                if len(parts) != 2:
+                    raise ValueError(
+                        f"Invalid default bond-order cutoff on line {line_no} in {path}: "
+                        "expected 'default <float>'."
+                    )
+                default_cutoff = _parse_cutoff_value(parts[1], line_no, path)
+                continue
+
+            if len(parts) != 3:
+                raise ValueError(
+                    f"Invalid bond-order cutoff on line {line_no} in {path}: "
+                    "expected '<atom type> <atom type> <float>'."
+                )
+            atom_types_a = _parse_atom_type_selector(parts[0], n_atom_types, line_no, path)
+            atom_types_b = _parse_atom_type_selector(parts[1], n_atom_types, line_no, path)
+            cutoff = _parse_cutoff_value(parts[2], line_no, path)
+            for atom_type_a in atom_types_a:
+                for atom_type_b in atom_types_b:
+                    pair = tuple(sorted((atom_type_a, atom_type_b)))
+                    cutoffs[pair] = cutoff
+
+    return default_cutoff, cutoffs
+
+
+def _parse_atom_type_selector(
+    raw_value: str,
+    n_atom_types: int,
+    line_no: int,
+    path: Path,
+) -> range:
+    """Expand one atom type or an inclusive ``start*end`` type range."""
+
+    match = re.fullmatch(r"(\d+)(?:\*(\d+))?", raw_value)
+    if match is None:
+        raise ValueError(
+            f"Invalid atom type {raw_value!r} in bond-order cutoff on line {line_no} in {path}: "
+            "expected an integer or an inclusive range such as '1*3'."
+        )
+    start = int(match.group(1))
+    end = int(match.group(2) or start)
+    if start > end:
+        raise ValueError(
+            f"Invalid atom-type range {raw_value!r} in bond-order cutoff on line {line_no} "
+            f"in {path}: the range start must not exceed its end."
+        )
+    if start < 1 or end > n_atom_types:
+        raise ValueError(
+            f"Invalid atom type selector {raw_value!r} in bond-order cutoff on line {line_no} "
+            f"in {path}: element_list defines types 1 through {n_atom_types}."
+        )
+    return range(start, end + 1)
+
+
+def _parse_cutoff_value(raw_value: str, line_no: int, path: Path) -> float:
+    """Parse and validate one non-negative bond-order cutoff."""
+
+    try:
+        cutoff = float(raw_value)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid bond-order cutoff {raw_value!r} on line {line_no} in {path}: "
+            "expected a float."
+        ) from exc
+    if not math.isfinite(cutoff) or cutoff < 0:
+        raise ValueError(
+            f"Invalid bond-order cutoff {raw_value!r} on line {line_no} in {path}: "
+            "expected a finite, non-negative value."
+        )
+    return cutoff
 
 
 def _read_assignments(path: Path) -> dict[str, str]:
