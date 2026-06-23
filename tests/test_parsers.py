@@ -298,3 +298,10 @@ def test_parse_bonds_flags_and_excludes_high_valence_components(tmp_path: Path):
     assert result.component_properties[0][0].suspicious
     assert "exceeds supported valence 4" in result.component_properties[0][0].warnings[0]
     assert result.excluded_components[0] == {0}
+
+    skip_result = parse_bond_observations(
+        bond_file,
+        {1: "C", 2: "H"},
+        structure_quality_mode="skip",
+    )
+    assert skip_result.excluded_components[0] == {0}

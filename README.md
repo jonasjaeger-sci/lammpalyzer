@@ -104,7 +104,7 @@ ends that space-separated cutoff section.
 | `bond_state_persistence_frames` | `1` | integer >= 1 | Consecutive sampled bond frames required before accepting a changed bond state. |
 | `bond_state_persistence_timesteps` | `0` | integer >= 0 | Minimum elapsed LAMMPS timesteps for a candidate state; `0` disables this requirement. |
 | `bond_order_hysteresis` | `0.0` | finite number >= 0 | Forms connectivity at `cutoff + value` and breaks it below `cutoff - value`. |
-| `structure_quality_mode` | `flag` | `keep`, `flag`, `exclude` | Controls how suspicious components affect reporting and reaction analysis. |
+| `structure_quality_mode` | `flag` | `keep`, `flag`, `exclude`, `skip` | Controls how suspicious components affect reporting and reaction analysis. |
 | `ion_charge_threshold` | `0.5` | finite number >= 0 | Component partial-charge magnitude used for cation/anion candidate labels; `0` disables labels. |
 
 The two persistence requirements use **AND** logic. Leaving the first three
@@ -192,6 +192,7 @@ suspicious components affect reaction analysis with:
 structure_quality_mode = keep     # retain all components
 structure_quality_mode = flag     # retain and report suspicious components (default)
 structure_quality_mode = exclude  # skip reactions touching suspicious components
+structure_quality_mode = skip     # bridge suspicious intermediates between clean states
 ```
 
 For `H`, `B`, `C`, `N`, `O`, `F`, `Si`, `P`, `S`, `Cl`, `Br`, and `I`, the
@@ -208,6 +209,17 @@ components are still tested.
 - `exclude` preserves raw components and metadata but skips any complete
   reaction event touching a suspicious reactant or product. This avoids creating
   artificial molecule-appearance or disappearance reactions.
+- `skip` preserves the same raw data but follows atom IDs across consecutive
+  suspicious observations. Once the complete connected atom lineage is clean
+  again, it registers a direct reaction between the last clean baseline and the
+  recovered clean state. For example, `A -> B -> C` with suspicious `B` becomes
+  `A -> C`. A partially suspicious split such as `A -> B + D -> C + D` becomes
+  `A -> C + D`, while unrelated clean reactions in those frames remain intact.
+
+If a trajectory begins with a suspicious structure and has no earlier clean
+baseline, `skip` cannot invent one; it waits for a clean state and resumes
+normal tracking without registering a bridged reaction. Bridged occurrences use
+the clean endpoint timesteps in reaction tables and visualization.
 
 The molecule tab summarizes component-charge ranges, ion-candidate counts, and
 suspicious-observation counts for a selected SMILES. The `Atomic charges` tab

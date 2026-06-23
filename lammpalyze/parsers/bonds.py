@@ -236,8 +236,8 @@ def _validate_bond_analysis_options(
         raise ValueError("bond_state_persistence_timesteps must not be negative.")
     if hysteresis < 0:
         raise ValueError("bond_order_hysteresis must not be negative.")
-    if quality_mode not in {"keep", "flag", "exclude"}:
-        raise ValueError("structure_quality_mode must be 'keep', 'flag', or 'exclude'.")
+    if quality_mode not in {"keep", "flag", "exclude", "skip"}:
+        raise ValueError("structure_quality_mode must be 'keep', 'flag', 'exclude', or 'skip'.")
     if ion_charge_threshold < 0:
         raise ValueError("ion_charge_threshold must not be negative.")
 
@@ -488,7 +488,7 @@ def _store_bond_frame(
         formula_list.append(formula)
         mol_lmp_ids.append(component_ids)
         property_list.append(properties)
-        if quality_mode == "exclude" and properties.suspicious:
+        if quality_mode in {"exclude", "skip"} and properties.suspicious:
             excluded_indexes.add(component_index)
 
     smiles[timestep] = smiles_list

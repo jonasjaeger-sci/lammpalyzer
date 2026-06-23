@@ -47,6 +47,79 @@ def test_count_reaction_paths_skips_events_touching_excluded_components():
     assert not paths
 
 
+def test_skip_quality_mode_bridges_suspicious_intermediate():
+    """Collapse A to suspicious B to C into one clean A to C event."""
+
+    smiles = {0: ["A"], 1: ["B"], 2: ["C"]}
+    smiles_id = {0: [["1"]], 1: [["1"]], 2: [["1"]]}
+
+    paths = count_reaction_paths(
+        smiles,
+        smiles_id,
+        excluded_components={1: {0}},
+        quality_mode="skip",
+    )
+    occurrences = find_reaction_occurrences(
+        smiles,
+        smiles_id,
+        excluded_components={1: {0}},
+        quality_mode="skip",
+    )
+
+    assert [(path.reaction, path.count) for path in paths] == [("['A'] -> ['C']", 1)]
+    assert len(occurrences) == 1
+    assert occurrences[0].timestep_reactants == 0
+    assert occurrences[0].timestep_products == 2
+
+
+def test_skip_quality_mode_bridges_cluster_without_hiding_unrelated_reaction():
+    """Bridge a partially suspicious split while retaining a separate clean event."""
+
+    smiles = {
+        0: ["A", "X"],
+        1: ["B", "D", "Y"],
+        2: ["C", "D", "Y"],
+    }
+    smiles_id = {
+        0: [["1", "2"], ["3"]],
+        1: [["1"], ["2"], ["3"]],
+        2: [["1"], ["2"], ["3"]],
+    }
+
+    paths = count_reaction_paths(
+        smiles,
+        smiles_id,
+        excluded_components={1: {0}},
+        quality_mode="skip",
+    )
+
+    assert {(path.reaction, path.count) for path in paths} == {
+        ("['A'] -> ['C', 'D']", 1),
+        ("['X'] -> ['Y']", 1),
+    }
+
+
+def test_project_tables_use_skip_quality_mode_for_bridged_pathways():
+    """Propagate skip-mode bridges into project and connected-pathway tables."""
+
+    simulation = LoadedSimulation(
+        index=1,
+        smiles={0: ["raw"], 1: ["A"], 2: ["B"], 3: ["C"]},
+        smiles_id={0: [["1"]], 1: [["1"]], 2: [["1"]], 3: [["1"]]},
+        chem_formulas={0: ["raw"], 1: ["A"], 2: ["B"], 3: ["C"]},
+        excluded_components={2: {0}},
+        structure_quality_mode="skip",
+    )
+    project = LammpalyzeProject(config=None, simulations=[simulation])
+
+    assert [(path.reaction, path.count) for path in project.reaction_paths()] == [
+        ("['raw'] -> ['A']", 1),
+        ("['A'] -> ['C']", 1),
+    ]
+    pathways = project.connected_reaction_pathways(notation="smiles")
+    assert [(step.source, step.target) for step in pathways[0].steps] == [("A", "C")]
+
+
 def test_project_first_reaction_occurrences_report_simulation_and_timesteps():
     """Collect first occurrence metadata for every observed reaction path."""
 

@@ -48,6 +48,7 @@ class LoadedSimulation:
     charge_statistics: dict[int, dict[str, ChargeStatistics]] | None = None
     component_properties: dict[int, list[ComponentProperties]] | None = None
     excluded_components: dict[int, set[int]] | None = None
+    structure_quality_mode: str = "flag"
     trajectory_path: Path | None = None
     bond_path: Path | None = None
     type_to_element: dict[int, str] | None = None
@@ -116,6 +117,7 @@ class LammpalyzeProject:
                 first_only=True,
                 simulation_index=simulation.index,
                 excluded_components=simulation.excluded_components,
+                quality_mode=simulation.structure_quality_mode,
             )
             if occurrences:
                 return simulation, occurrences[0]
@@ -133,6 +135,7 @@ class LammpalyzeProject:
                 simulation.smiles_id,
                 simulation_index=simulation.index,
                 excluded_components=simulation.excluded_components,
+                quality_mode=simulation.structure_quality_mode,
             ):
                 occurrences_by_reaction.setdefault(occurrence.reaction, (simulation, occurrence))
         return occurrences_by_reaction
@@ -163,6 +166,7 @@ def load_project(
         loaded.bond_path = files.bond
         loaded.trajectory_path = files.trajectory
         loaded.type_to_element = config.type_to_element
+        loaded.structure_quality_mode = config.structure_quality_mode
 
         if files.species is not None:
             species, _, species_df = eval_species(files.species)
@@ -197,7 +201,7 @@ def load_project(
                 for frame_properties in bond_result.component_properties.values()
                 for properties in frame_properties
             )
-            if suspicious_count and config.structure_quality_mode in {"flag", "exclude"}:
+            if suspicious_count and config.structure_quality_mode in {"flag", "exclude", "skip"}:
                 LOGGER.warning(
                     "Simulation %s contains %s suspicious component observation(s); mode=%s",
                     files.index,

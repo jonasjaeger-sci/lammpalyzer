@@ -21,7 +21,7 @@ DEFAULT_BOND_STATE_PERSISTENCE_TIMESTEPS = 0
 DEFAULT_BOND_ORDER_HYSTERESIS = 0.0
 DEFAULT_STRUCTURE_QUALITY_MODE = "flag"
 DEFAULT_ION_CHARGE_THRESHOLD = 0.5
-STRUCTURE_QUALITY_MODES = {"keep", "flag", "exclude"}
+STRUCTURE_QUALITY_MODES = {"keep", "flag", "exclude", "skip"}
 _BOND_ORDER_CUTOFF_HEADER_RE = re.compile(
     r"^\s*#?\s*bond[\s_-]+order[\s_-]+cutoffs?\s*$",
     re.IGNORECASE,

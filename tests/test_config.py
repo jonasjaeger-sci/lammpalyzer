@@ -147,6 +147,18 @@ def test_parse_input_file_reads_temporal_quality_and_charge_settings(tmp_path: P
     assert config.ion_charge_threshold == 0.7
 
 
+def test_parse_input_file_accepts_skip_structure_quality_mode(tmp_path: Path):
+    """Allow suspicious intermediates to be bridged between clean states."""
+
+    input_file = tmp_path / "lmplyz.inp"
+    input_file.write_text(
+        'element_list = ["C", "H"]\nstructure_quality_mode = skip\nBF1 = bonds.reax\n',
+        encoding="utf-8",
+    )
+
+    assert parse_input_file(input_file).structure_quality_mode == "skip"
+
+
 @pytest.mark.parametrize(
     ("setting", "message"),
     [

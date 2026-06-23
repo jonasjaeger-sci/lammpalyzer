@@ -68,6 +68,14 @@ class PathwayEdgeData:
     edge_orders: dict[tuple[tuple[str, ...], tuple[str, ...]], int]
 
 
+@dataclass
+class _PendingSkipLineage:
+    """Atom lineage waiting to emerge from suspicious component observations."""
+
+    baseline_timestep: int | None
+    atom_ids: set[str]
+
+
 class UnionFindReax:
     """Disjoint-set structure used while linking molecules across timesteps."""
 
@@ -124,6 +132,7 @@ def count_reaction_paths(
     smiles: dict[int, list[str]],
     smiles_id: dict[int, list[list[str]]],
     excluded_components: Mapping[int, set[int]] | None = None,
+    quality_mode: str = "exclude",
 ) -> list[ReactionPath]:
     """Count reaction signatures over a sequence of parsed bond frames.
 
@@ -134,7 +143,12 @@ def count_reaction_paths(
 
     reaction_paths: Counter[str] = Counter()
 
-    for t1, t2, reaction in _iter_reactions(smiles, smiles_id, excluded_components):
+    for t1, t2, reaction in _iter_reactions(
+        smiles,
+        smiles_id,
+        excluded_components,
+        quality_mode,
+    ):
         reactants = sorted(smiles[t1][index] for index in reaction["reactants"])
         products = sorted(smiles[t2][index] for index in reaction["products"])
         if Counter(reactants) != Counter(products):
@@ -154,11 +168,17 @@ def find_reaction_occurrences(
     first_only: bool = False,
     simulation_index: int | None = None,
     excluded_components: Mapping[int, set[int]] | None = None,
+    quality_mode: str = "exclude",
 ) -> list[ReactionOccurrence]:
     """List concrete events, optionally narrowed to one reaction string."""
 
     occurrences: list[ReactionOccurrence] = []
-    for t1, t2, reaction in _iter_reactions(smiles, smiles_id, excluded_components):
+    for t1, t2, reaction in _iter_reactions(
+        smiles,
+        smiles_id,
+        excluded_components,
+        quality_mode,
+    ):
         reactants = sorted(smiles[t1][index] for index in reaction["reactants"])
         products = sorted(smiles[t2][index] for index in reaction["products"])
         if Counter(reactants) == Counter(products):
@@ -208,6 +228,7 @@ def build_reaction_path_table(simulations) -> tuple[list[int], list[ReactionPath
             simulation.smiles,
             simulation.smiles_id,
             getattr(simulation, "excluded_components", None),
+            getattr(simulation, "structure_quality_mode", "exclude"),
         ):
             counts_by_reaction.setdefault(path.reaction, {})[simulation.index] = path.count
             all_paths[path.reaction] = all_paths.get(path.reaction, 0) + path.count
@@ -323,6 +344,7 @@ def _collect_simulation_pathway_edges(
         simulation.smiles,
         simulation.smiles_id,
         getattr(simulation, "excluded_components", None),
+        getattr(simulation, "structure_quality_mode", "exclude"),
     ):
         if timestep_positions[t1] < initial_position:
             continue
@@ -688,8 +710,33 @@ def _iter_reactions(
     smiles: dict[int, list[str]],
     smiles_id: dict[int, list[list[str]]],
     excluded_components: Mapping[int, set[int]] | None = None,
+    quality_mode: str = "exclude",
 ):
-    """Walk adjacent frames and yield the raw cluster maps used by counters."""
+    """Yield reaction clusters using the selected suspicious-structure policy."""
+
+    if quality_mode == "skip" and excluded_components:
+        yield from _iter_reactions_skipping_suspicious(
+            smiles,
+            smiles_id,
+            excluded_components,
+        )
+        return
+
+    for t1, t2, reaction in _iter_adjacent_reaction_clusters(smiles, smiles_id):
+        excluded_t1 = (excluded_components or {}).get(t1, set())
+        excluded_t2 = (excluded_components or {}).get(t2, set())
+        if any(index in excluded_t1 for index in reaction["reactants"]):
+            continue
+        if any(index in excluded_t2 for index in reaction["products"]):
+            continue
+        yield t1, t2, reaction
+
+
+def _iter_adjacent_reaction_clusters(
+    smiles: dict[int, list[str]],
+    smiles_id: dict[int, list[list[str]]],
+):
+    """Yield unfiltered atom-mapped reaction clusters between adjacent frames."""
 
     timesteps = sorted(smiles.keys())
     for t1, t2 in zip(timesteps, timesteps[1:], strict=False):
@@ -708,13 +755,211 @@ def _iter_reactions(
             pointer_t2_t1.append(sorted(reactants))
 
         for reaction in reaction_clusters(pointer_t1_t2, pointer_t2_t1):
-            excluded_t1 = (excluded_components or {}).get(t1, set())
-            excluded_t2 = (excluded_components or {}).get(t2, set())
-            if any(index in excluded_t1 for index in reaction["reactants"]):
-                continue
-            if any(index in excluded_t2 for index in reaction["products"]):
-                continue
             yield t1, t2, reaction
+
+
+def _iter_reactions_skipping_suspicious(
+    smiles: dict[int, list[str]],
+    smiles_id: dict[int, list[list[str]]],
+    suspicious_components: Mapping[int, set[int]],
+):
+    """Bridge suspicious component lineages between their nearest clean states."""
+
+    timesteps = sorted(smiles)
+    timestep_positions = {timestep: index for index, timestep in enumerate(timesteps)}
+    pending: list[_PendingSkipLineage] = []
+
+    for t1, t2, reaction in _iter_adjacent_reaction_clusters(smiles, smiles_id):
+        atom_ids = _reaction_cluster_atom_ids(reaction, t1, t2, smiles_id)
+        overlapping = [lineage for lineage in pending if lineage.atom_ids & atom_ids]
+        touches_suspicious = _reaction_touches_components(
+            reaction,
+            t1,
+            t2,
+            suspicious_components,
+        )
+        if not overlapping and not touches_suspicious:
+            yield t1, t2, reaction
+            continue
+
+        merged_atoms = set(atom_ids)
+        existing_baselines = []
+        for lineage in overlapping:
+            merged_atoms.update(lineage.atom_ids)
+            if lineage.baseline_timestep is not None:
+                existing_baselines.append(lineage.baseline_timestep)
+            pending.remove(lineage)
+
+        baseline = min(existing_baselines) if existing_baselines else _latest_clean_timestep(
+            timesteps,
+            timestep_positions[t1],
+            merged_atoms,
+            smiles_id,
+            suspicious_components,
+        )
+        pending.append(_PendingSkipLineage(baseline, merged_atoms))
+        pending = _merge_pending_lineages(pending, t2, smiles_id)
+
+        resolved = []
+        for lineage in pending:
+            baseline_indexes, product_indexes, closed_atoms = _lineage_component_closure(
+                lineage.baseline_timestep,
+                t2,
+                lineage.atom_ids,
+                smiles_id,
+            )
+            lineage.atom_ids = closed_atoms
+            if any(index in suspicious_components.get(t2, set()) for index in product_indexes):
+                continue
+            resolved.append(lineage)
+            if lineage.baseline_timestep is None:
+                continue
+            if any(
+                index in suspicious_components.get(lineage.baseline_timestep, set())
+                for index in baseline_indexes
+            ):
+                continue
+            yield lineage.baseline_timestep, t2, {
+                "reactants": baseline_indexes,
+                "products": product_indexes,
+            }
+        for lineage in resolved:
+            pending.remove(lineage)
+
+
+def _reaction_cluster_atom_ids(
+    reaction: dict[str, list[int]],
+    t1: int,
+    t2: int,
+    smiles_id: dict[int, list[list[str]]],
+) -> set[str]:
+    """Return all atoms participating in one adjacent reaction cluster."""
+
+    return {
+        atom_id
+        for timestep, side in ((t1, "reactants"), (t2, "products"))
+        for index in reaction[side]
+        for atom_id in smiles_id[timestep][index]
+    }
+
+
+def _reaction_touches_components(
+    reaction: dict[str, list[int]],
+    t1: int,
+    t2: int,
+    components: Mapping[int, set[int]],
+) -> bool:
+    """Return whether a cluster contains a selected component on either side."""
+
+    return any(index in components.get(t1, set()) for index in reaction["reactants"]) or any(
+        index in components.get(t2, set()) for index in reaction["products"]
+    )
+
+
+def _latest_clean_timestep(
+    timesteps: list[int],
+    end_position: int,
+    atom_ids: set[str],
+    smiles_id: dict[int, list[list[str]]],
+    suspicious_components: Mapping[int, set[int]],
+) -> int | None:
+    """Find the nearest earlier frame where the selected atom lineage was clean."""
+
+    for timestep in reversed(timesteps[:end_position + 1]):
+        indexes = _component_indexes_overlapping(smiles_id[timestep], atom_ids)
+        observed_atoms = {
+            atom_id for index in indexes for atom_id in smiles_id[timestep][index]
+        }
+        if atom_ids <= observed_atoms and not any(
+            index in suspicious_components.get(timestep, set()) for index in indexes
+        ):
+            return timestep
+    return None
+
+
+def _merge_pending_lineages(
+    pending: list[_PendingSkipLineage],
+    current_timestep: int,
+    smiles_id: dict[int, list[list[str]]],
+) -> list[_PendingSkipLineage]:
+    """Expand pending groups through current components and merge overlaps."""
+
+    changed = True
+    while changed:
+        changed = False
+        for lineage in pending:
+            _, _, closed_atoms = _lineage_component_closure(
+                lineage.baseline_timestep,
+                current_timestep,
+                lineage.atom_ids,
+                smiles_id,
+            )
+            if closed_atoms != lineage.atom_ids:
+                lineage.atom_ids = closed_atoms
+                changed = True
+
+        for index, first in enumerate(pending):
+            overlapping_index = next(
+                (
+                    other_index
+                    for other_index in range(index + 1, len(pending))
+                    if first.atom_ids & pending[other_index].atom_ids
+                ),
+                None,
+            )
+            if overlapping_index is None:
+                continue
+            second = pending.pop(overlapping_index)
+            first.atom_ids.update(second.atom_ids)
+            baselines = [
+                value
+                for value in (first.baseline_timestep, second.baseline_timestep)
+                if value is not None
+            ]
+            first.baseline_timestep = min(baselines) if baselines else None
+            changed = True
+            break
+    return pending
+
+
+def _lineage_component_closure(
+    baseline_timestep: int | None,
+    current_timestep: int,
+    seed_atoms: set[str],
+    smiles_id: dict[int, list[list[str]]],
+) -> tuple[list[int], list[int], set[str]]:
+    """Close an atom set over its baseline and current component partitions."""
+
+    atom_ids = set(seed_atoms)
+    baseline_indexes: list[int] = []
+    current_indexes: list[int] = []
+    while True:
+        previous_atoms = set(atom_ids)
+        baseline_indexes = (
+            _component_indexes_overlapping(smiles_id[baseline_timestep], atom_ids)
+            if baseline_timestep is not None
+            else []
+        )
+        current_indexes = _component_indexes_overlapping(smiles_id[current_timestep], atom_ids)
+        for timestep, indexes in (
+            (baseline_timestep, baseline_indexes),
+            (current_timestep, current_indexes),
+        ):
+            if timestep is None:
+                continue
+            for index in indexes:
+                atom_ids.update(smiles_id[timestep][index])
+        if atom_ids == previous_atoms:
+            return baseline_indexes, current_indexes, atom_ids
+
+
+def _component_indexes_overlapping(
+    components: list[list[str]],
+    atom_ids: set[str],
+) -> list[int]:
+    """Return component indexes containing at least one selected atom."""
+
+    return [index for index, component in enumerate(components) if atom_ids.intersection(component)]
 
 
 def _atom_sort_key(atom_id: str) -> tuple[int, str]:
