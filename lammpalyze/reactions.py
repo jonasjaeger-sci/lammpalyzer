@@ -123,6 +123,7 @@ def reaction_clusters(
 def count_reaction_paths(
     smiles: dict[int, list[str]],
     smiles_id: dict[int, list[list[str]]],
+    excluded_components: Mapping[int, set[int]] | None = None,
 ) -> list[ReactionPath]:
     """Count reaction signatures over a sequence of parsed bond frames.
 
@@ -131,29 +132,13 @@ def count_reaction_paths(
     identical paths are counted.
     """
 
-    timesteps = sorted(smiles.keys())
     reaction_paths: Counter[str] = Counter()
 
-    for t1, t2 in zip(timesteps, timesteps[1:], strict=False):
-        atom_mapping_t1 = map_atoms_to_mols(smiles[t1], smiles_id[t1])
-        atom_mapping_t2 = map_atoms_to_mols(smiles[t2], smiles_id[t2])
-
-        pointer_t1_t2: list[list[int]] = []
-        pointer_t2_t1: list[list[int]] = []
-
-        for molecule in smiles_id[t1]:
-            products = {atom_mapping_t2[atom_id][1] for atom_id in molecule if atom_id in atom_mapping_t2}
-            pointer_t1_t2.append(sorted(products))
-
-        for molecule in smiles_id[t2]:
-            reactants = {atom_mapping_t1[atom_id][1] for atom_id in molecule if atom_id in atom_mapping_t1}
-            pointer_t2_t1.append(sorted(reactants))
-
-        for reaction in reaction_clusters(pointer_t1_t2, pointer_t2_t1):
-            reactants = sorted(smiles[t1][index] for index in reaction["reactants"])
-            products = sorted(smiles[t2][index] for index in reaction["products"])
-            if Counter(reactants) != Counter(products):
-                reaction_paths[_format_reaction(reactants, products)] += 1
+    for t1, t2, reaction in _iter_reactions(smiles, smiles_id, excluded_components):
+        reactants = sorted(smiles[t1][index] for index in reaction["reactants"])
+        products = sorted(smiles[t2][index] for index in reaction["products"])
+        if Counter(reactants) != Counter(products):
+            reaction_paths[_format_reaction(reactants, products)] += 1
 
     return [
         ReactionPath(reaction, count)
@@ -168,11 +153,12 @@ def find_reaction_occurrences(
     *,
     first_only: bool = False,
     simulation_index: int | None = None,
+    excluded_components: Mapping[int, set[int]] | None = None,
 ) -> list[ReactionOccurrence]:
     """List concrete events, optionally narrowed to one reaction string."""
 
     occurrences: list[ReactionOccurrence] = []
-    for t1, t2, reaction in _iter_reactions(smiles, smiles_id):
+    for t1, t2, reaction in _iter_reactions(smiles, smiles_id, excluded_components):
         reactants = sorted(smiles[t1][index] for index in reaction["reactants"])
         products = sorted(smiles[t2][index] for index in reaction["products"])
         if Counter(reactants) == Counter(products):
@@ -218,7 +204,11 @@ def build_reaction_path_table(simulations) -> tuple[list[int], list[ReactionPath
         if simulation.smiles is None or simulation.smiles_id is None:
             continue
         simulation_indices.append(simulation.index)
-        for path in count_reaction_paths(simulation.smiles, simulation.smiles_id):
+        for path in count_reaction_paths(
+            simulation.smiles,
+            simulation.smiles_id,
+            getattr(simulation, "excluded_components", None),
+        ):
             counts_by_reaction.setdefault(path.reaction, {})[simulation.index] = path.count
             all_paths[path.reaction] = all_paths.get(path.reaction, 0) + path.count
     paths = [
@@ -285,7 +275,15 @@ def _collect_pathway_edge_data(simulations, notation: str) -> PathwayEdgeData:
             continue
 
         initial_timestep = timesteps[1] if len(timesteps) > 1 else timesteps[0]
-        edge_data.initial_species.update(values_by_time[initial_timestep])
+        excluded_initial = (getattr(simulation, "excluded_components", None) or {}).get(
+            initial_timestep,
+            set(),
+        )
+        edge_data.initial_species.update(
+            value
+            for index, value in enumerate(values_by_time[initial_timestep])
+            if index not in excluded_initial
+        )
         order = _collect_simulation_pathway_edges(
             simulation,
             values_by_time,
@@ -321,7 +319,11 @@ def _collect_simulation_pathway_edges(
     initial_timestep = timesteps[1] if len(timesteps) > 1 else timesteps[0]
     initial_position = timestep_positions[initial_timestep]
 
-    for t1, t2, reaction in _iter_reactions(simulation.smiles, simulation.smiles_id):
+    for t1, t2, reaction in _iter_reactions(
+        simulation.smiles,
+        simulation.smiles_id,
+        getattr(simulation, "excluded_components", None),
+    ):
         if timestep_positions[t1] < initial_position:
             continue
         source = tuple(sorted(values_by_time[t1][index] for index in reaction["reactants"]))
@@ -682,7 +684,11 @@ def _undirected_edge_key(
     return target, source
 
 
-def _iter_reactions(smiles: dict[int, list[str]], smiles_id: dict[int, list[list[str]]]):
+def _iter_reactions(
+    smiles: dict[int, list[str]],
+    smiles_id: dict[int, list[list[str]]],
+    excluded_components: Mapping[int, set[int]] | None = None,
+):
     """Walk adjacent frames and yield the raw cluster maps used by counters."""
 
     timesteps = sorted(smiles.keys())
@@ -702,6 +708,12 @@ def _iter_reactions(smiles: dict[int, list[str]], smiles_id: dict[int, list[list
             pointer_t2_t1.append(sorted(reactants))
 
         for reaction in reaction_clusters(pointer_t1_t2, pointer_t2_t1):
+            excluded_t1 = (excluded_components or {}).get(t1, set())
+            excluded_t2 = (excluded_components or {}).get(t2, set())
+            if any(index in excluded_t1 for index in reaction["reactants"]):
+                continue
+            if any(index in excluded_t2 for index in reaction["products"]):
+                continue
             yield t1, t2, reaction
 
 

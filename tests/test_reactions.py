@@ -36,6 +36,17 @@ def test_count_reaction_paths_counts_split_reaction():
     ]
 
 
+def test_count_reaction_paths_skips_events_touching_excluded_components():
+    """Do not turn excluded suspicious structures into disappearance events."""
+
+    smiles = {0: ["AB"], 1: ["A", "B"]}
+    smiles_id = {0: [["1", "2"]], 1: [["1"], ["2"]]}
+
+    paths = count_reaction_paths(smiles, smiles_id, excluded_components={1: {0}})
+
+    assert not paths
+
+
 def test_project_first_reaction_occurrences_report_simulation_and_timesteps():
     """Collect first occurrence metadata for every observed reaction path."""
 

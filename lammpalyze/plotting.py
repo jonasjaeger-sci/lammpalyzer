@@ -66,6 +66,8 @@ THERMO_LINE_COLORS = [
     "#ffd166",
 ]
 
+CHARGE_LINE_COLORS = SPECIES_DARK_COLORS
+
 THERMO_UNITS = {
     "PotEng": "kcal/mol",
     "KinEng": "kcal/mol",
@@ -233,6 +235,73 @@ def plot_rdf(
     _style_axes(ax, f"RDF {element_a}-{element_b}", "g(r)", style, x_label="r [A]")
     _add_reference_lines(ax, reference_lines, color=style["text"])
     legend = ax.legend(frameon=False)
+    for text in legend.get_texts():
+        text.set_color(style["text"])
+    fig.tight_layout()
+    return fig
+
+
+def plot_charge_evolution(
+    simulations: list[LoadedSimulation],
+    elements: list[str],
+    *,
+    uncertainty: str = "band",
+    step_range: tuple[float, float] | None = None,
+    theme: str = "dark",
+):
+    """Plot mean atomic partial charge by element, with optional deviations."""
+
+    if uncertainty not in {"band", "errorbar", "none"}:
+        raise ValueError("uncertainty must be 'band', 'errorbar', or 'none'.")
+    if not elements:
+        raise ValueError("Select at least one element for charge plotting.")
+
+    style = _theme_colors(theme)
+    fig, ax = plt.subplots(figsize=(9.0, 5.2), facecolor=style["figure"])
+    color_cycle = cycle(CHARGE_LINE_COLORS)
+    plotted = 0
+    for simulation in simulations:
+        if not simulation.charge_statistics:
+            continue
+        for element in elements:
+            observations = [
+                (timestep, summaries[element])
+                for timestep, summaries in sorted(simulation.charge_statistics.items())
+                if element in summaries
+            ]
+            if step_range is not None:
+                lower, upper = sorted(step_range)
+                observations = [item for item in observations if lower <= item[0] <= upper]
+            if not observations:
+                continue
+            timesteps = [item[0] for item in observations]
+            means = [item[1].mean for item in observations]
+            deviations = [item[1].std for item in observations]
+            color = next(color_cycle)
+            label = f"Simulation {simulation.index} {element}"
+            if uncertainty == "errorbar":
+                ax.errorbar(
+                    timesteps,
+                    means,
+                    yerr=deviations,
+                    label=label,
+                    color=color,
+                    linewidth=1.8,
+                    capsize=2,
+                )
+            else:
+                ax.plot(timesteps, means, label=label, color=color, linewidth=2.0)
+                if uncertainty == "band":
+                    lower_values = [mean - std for mean, std in zip(means, deviations, strict=False)]
+                    upper_values = [mean + std for mean, std in zip(means, deviations, strict=False)]
+                    ax.fill_between(timesteps, lower_values, upper_values, color=color, alpha=0.18)
+            plotted += 1
+
+    if not plotted:
+        raise ValueError("No charge observations match the selected simulations, elements, and range.")
+    _style_axes(ax, "Atomic partial charges", "Mean partial charge [e]", style, x_label="Timestep")
+    _apply_step_range(ax, step_range)
+    legend = ax.legend(frameon=False, fontsize="small")
     for text in legend.get_texts():
         text.set_color(style["text"])
     fig.tight_layout()
@@ -435,7 +504,7 @@ def _hex_to_rgb(color: str) -> tuple[int, int, int]:
     if len(stripped) != 6:
         raise ValueError(f"Expected a #rrggbb color, got {color!r}.")
     try:
-        return tuple(int(stripped[index : index + 2], 16) for index in range(0, 6, 2))
+        return tuple(int(stripped[index:index + 2], 16) for index in range(0, 6, 2))
     except ValueError as exc:
         raise ValueError(f"Expected a #rrggbb color, got {color!r}.") from exc
 

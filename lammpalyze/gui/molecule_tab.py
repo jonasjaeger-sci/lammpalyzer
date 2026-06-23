@@ -9,6 +9,7 @@ from lammpalyze.gui.helpers import (
     MOLECULE_RESIZE_DEBOUNCE_MS,
     PNG_FILETYPES,
     image_output_path,
+    molecule_observation_summary,
     molecule_render_size,
 )
 from lammpalyze.smiles import formulas_for_simulation, molecule_image, molecule_photo_image, smiles_for_formula
@@ -51,6 +52,15 @@ class MoleculeTabMixin:
         ttk.Label(controls, text="SMILES").pack(anchor="w")
         self.smiles_combo = ttk.Combobox(controls, textvariable=self.smiles_value, state="readonly", width=42)
         self.smiles_combo.pack(fill="x", pady=(0, 12))
+        self.smiles_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_smiles_metadata())
+
+        self.smiles_metadata = tk.StringVar()
+        ttk.Label(
+            controls,
+            textvariable=self.smiles_metadata,
+            wraplength=280,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 12))
 
         ttk.Button(controls, text="Generate", command=self._generate_molecule).pack(fill="x")
         ttk.Button(controls, text="Generate all structures", command=self._generate_all_molecules).pack(
@@ -172,6 +182,14 @@ class MoleculeTabMixin:
             values = smiles_for_formula(simulation.chem_formulas, simulation.smiles, formula)
         self.smiles_combo.configure(values=values)
         self.smiles_value.set(values[0] if values else "")
+        self._refresh_smiles_metadata()
+
+    def _refresh_smiles_metadata(self) -> None:
+        """Show charge, ion-candidate, and quality information for a SMILES."""
+
+        simulation = self._selected_smiles_simulation()
+        summary = molecule_observation_summary(simulation, self.smiles_value.get()) if simulation else ""
+        self.smiles_metadata.set(summary)
 
     def _selected_smiles_simulation(self):
         """Return the simulation selected in the SMILES tab, if any."""

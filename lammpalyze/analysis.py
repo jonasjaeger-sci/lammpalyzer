@@ -11,7 +11,14 @@ import numpy as np
 import pandas as pd
 
 from lammpalyze.config import LammpalyzeConfig
-from lammpalyze.parsers import eval_species, eval_thermo, parse_bonds, parse_traj
+from lammpalyze.parsers import (
+    ChargeStatistics,
+    ComponentProperties,
+    eval_species,
+    eval_thermo,
+    parse_bond_observations,
+    parse_traj,
+)
 from lammpalyze.reactions import (
     ConnectedReactionPathway,
     ReactionOccurrence,
@@ -37,6 +44,10 @@ class LoadedSimulation:
     smiles: dict[int, list[str]] | None = None
     smiles_id: dict[int, list[list[str]]] | None = None
     chem_formulas: dict[int, list[str]] | None = None
+    atom_charges: dict[int, dict[str, float]] | None = None
+    charge_statistics: dict[int, dict[str, ChargeStatistics]] | None = None
+    component_properties: dict[int, list[ComponentProperties]] | None = None
+    excluded_components: dict[int, set[int]] | None = None
     trajectory_path: Path | None = None
     bond_path: Path | None = None
     type_to_element: dict[int, str] | None = None
@@ -104,6 +115,7 @@ class LammpalyzeProject:
                 reaction_filter=reaction,
                 first_only=True,
                 simulation_index=simulation.index,
+                excluded_components=simulation.excluded_components,
             )
             if occurrences:
                 return simulation, occurrences[0]
@@ -120,6 +132,7 @@ class LammpalyzeProject:
                 simulation.smiles,
                 simulation.smiles_id,
                 simulation_index=simulation.index,
+                excluded_components=simulation.excluded_components,
             ):
                 occurrences_by_reaction.setdefault(occurrence.reaction, (simulation, occurrence))
         return occurrences_by_reaction
@@ -160,16 +173,37 @@ def load_project(
             _, loaded.thermo_df = eval_thermo(files.thermo)
 
         if files.bond is not None:
-            atom_evolution, smiles, smiles_id, chem_formulas = parse_bonds(
+            bond_result = parse_bond_observations(
                 files.bond,
                 config.type_to_element,
                 default_bond_order_cutoff=config.default_bond_order_cutoff,
                 bond_order_cutoffs=config.bond_order_cutoffs,
+                bond_state_persistence_frames=config.bond_state_persistence_frames,
+                bond_state_persistence_timesteps=config.bond_state_persistence_timesteps,
+                bond_order_hysteresis=config.bond_order_hysteresis,
+                structure_quality_mode=config.structure_quality_mode,
+                ion_charge_threshold=config.ion_charge_threshold,
             )
-            loaded.atom_evolution = atom_evolution
-            loaded.smiles = smiles
-            loaded.smiles_id = smiles_id
-            loaded.chem_formulas = chem_formulas
+            loaded.atom_evolution = bond_result.atom_evolution
+            loaded.smiles = bond_result.smiles
+            loaded.smiles_id = bond_result.smiles_atoms
+            loaded.chem_formulas = bond_result.chem_formulas
+            loaded.atom_charges = bond_result.atom_charges
+            loaded.charge_statistics = bond_result.charge_statistics
+            loaded.component_properties = bond_result.component_properties
+            loaded.excluded_components = bond_result.excluded_components
+            suspicious_count = sum(
+                properties.suspicious
+                for frame_properties in bond_result.component_properties.values()
+                for properties in frame_properties
+            )
+            if suspicious_count and config.structure_quality_mode in {"flag", "exclude"}:
+                LOGGER.warning(
+                    "Simulation %s contains %s suspicious component observation(s); mode=%s",
+                    files.index,
+                    suspicious_count,
+                    config.structure_quality_mode,
+                )
 
         simulations.append(loaded)
         if progress_callback is not None:

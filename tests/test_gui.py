@@ -10,11 +10,13 @@ from lammpalyze.gui import (
 )
 from lammpalyze.gui.helpers import (
     image_output_path,
+    molecule_observation_summary,
     parse_reference_lines,
     parse_simulation_groups,
     parse_timestep_values,
     suffixed_image_output_path,
 )
+from lammpalyze.parsers import ComponentProperties
 from lammpalyze.reactions import ReactionPath
 
 
@@ -127,3 +129,22 @@ def test_parse_timestep_values_accepts_common_list_syntax():
 
     assert parse_timestep_values("(200, 3400); 4200") == [200, 3400, 4200]
     assert not parse_timestep_values("  ")
+
+
+def test_molecule_observation_summary_reports_charge_ions_and_flags():
+    """Summarize component metadata across repeated SMILES observations."""
+
+    simulation = LoadedSimulation(
+        index=1,
+        smiles={0: ["[Li]"], 10: ["[Li]"]},
+        component_properties={
+            0: [ComponentProperties(0.6, "cation candidate", ())],
+            10: [ComponentProperties(0.8, "cation candidate", ("valence warning",))],
+        },
+    )
+
+    summary = molecule_observation_summary(simulation, "[Li]")
+
+    assert "charge mean +0.700 e" in summary
+    assert "cation candidate: 2" in summary
+    assert "Suspicious observations: 1" in summary

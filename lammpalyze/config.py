@@ -16,6 +16,12 @@ TOPIC_PREFIXES = {
     "trajectory": ("TrajF", "TrajectoryF", "TrajectoryFile"),
 }
 DEFAULT_BOND_ORDER_CUTOFF = 0.3
+DEFAULT_BOND_STATE_PERSISTENCE_FRAMES = 1
+DEFAULT_BOND_STATE_PERSISTENCE_TIMESTEPS = 0
+DEFAULT_BOND_ORDER_HYSTERESIS = 0.0
+DEFAULT_STRUCTURE_QUALITY_MODE = "flag"
+DEFAULT_ION_CHARGE_THRESHOLD = 0.5
+STRUCTURE_QUALITY_MODES = {"keep", "flag", "exclude"}
 _BOND_ORDER_CUTOFF_HEADER_RE = re.compile(
     r"^\s*#?\s*bond[\s_-]+order[\s_-]+cutoffs?\s*$",
     re.IGNORECASE,
@@ -42,6 +48,11 @@ class LammpalyzeConfig:
     simulations: list[SimulationFiles]
     default_bond_order_cutoff: float = DEFAULT_BOND_ORDER_CUTOFF
     bond_order_cutoffs: dict[tuple[int, int], float] = field(default_factory=dict)
+    bond_state_persistence_frames: int = DEFAULT_BOND_STATE_PERSISTENCE_FRAMES
+    bond_state_persistence_timesteps: int = DEFAULT_BOND_STATE_PERSISTENCE_TIMESTEPS
+    bond_order_hysteresis: float = DEFAULT_BOND_ORDER_HYSTERESIS
+    structure_quality_mode: str = DEFAULT_STRUCTURE_QUALITY_MODE
+    ion_charge_threshold: float = DEFAULT_ION_CHARGE_THRESHOLD
 
     @property
     def type_to_element(self) -> dict[int, str]:
@@ -75,6 +86,36 @@ def parse_input_file(input_file: str | Path) -> LammpalyzeConfig:
         len(element_list),
     )
     grouped = _group_paths(assignments, path.parent)
+    persistence_frames = _parse_int_setting(
+        assignments,
+        "bond_state_persistence_frames",
+        DEFAULT_BOND_STATE_PERSISTENCE_FRAMES,
+        minimum=1,
+    )
+    persistence_timesteps = _parse_int_setting(
+        assignments,
+        "bond_state_persistence_timesteps",
+        DEFAULT_BOND_STATE_PERSISTENCE_TIMESTEPS,
+        minimum=0,
+    )
+    hysteresis = _parse_float_setting(
+        assignments,
+        "bond_order_hysteresis",
+        DEFAULT_BOND_ORDER_HYSTERESIS,
+        minimum=0.0,
+    )
+    quality_mode = _parse_choice_setting(
+        assignments,
+        "structure_quality_mode",
+        DEFAULT_STRUCTURE_QUALITY_MODE,
+        STRUCTURE_QUALITY_MODES,
+    )
+    ion_charge_threshold = _parse_float_setting(
+        assignments,
+        "ion_charge_threshold",
+        DEFAULT_ION_CHARGE_THRESHOLD,
+        minimum=0.0,
+    )
 
     indexes = sorted({idx for topic in grouped.values() for idx in topic})
     if not indexes:
@@ -94,12 +135,77 @@ def parse_input_file(input_file: str | Path) -> LammpalyzeConfig:
         for idx in indexes
     ]
     return LammpalyzeConfig(
-        path,
-        element_list,
-        simulations,
-        default_bond_order_cutoff,
-        bond_order_cutoffs,
+        input_file=path,
+        element_list=element_list,
+        simulations=simulations,
+        default_bond_order_cutoff=default_bond_order_cutoff,
+        bond_order_cutoffs=bond_order_cutoffs,
+        bond_state_persistence_frames=persistence_frames,
+        bond_state_persistence_timesteps=persistence_timesteps,
+        bond_order_hysteresis=hysteresis,
+        structure_quality_mode=quality_mode,
+        ion_charge_threshold=ion_charge_threshold,
     )
+
+
+def _parse_int_setting(
+    assignments: dict[str, str],
+    key: str,
+    default: int,
+    *,
+    minimum: int,
+) -> int:
+    """Parse one integer analysis setting with a lower bound."""
+
+    raw_value = assignments.get(key)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{key} must be an integer, received {raw_value!r}.") from exc
+    if value < minimum:
+        raise ValueError(f"{key} must be at least {minimum}, received {value}.")
+    return value
+
+
+def _parse_float_setting(
+    assignments: dict[str, str],
+    key: str,
+    default: float,
+    *,
+    minimum: float,
+) -> float:
+    """Parse one finite floating-point analysis setting with a lower bound."""
+
+    raw_value = assignments.get(key)
+    if raw_value is None:
+        return default
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{key} must be a number, received {raw_value!r}.") from exc
+    if not math.isfinite(value) or value < minimum:
+        raise ValueError(f"{key} must be finite and at least {minimum}, received {raw_value!r}.")
+    return value
+
+
+def _parse_choice_setting(
+    assignments: dict[str, str],
+    key: str,
+    default: str,
+    choices: set[str],
+) -> str:
+    """Parse one case-insensitive setting selected from fixed choices."""
+
+    raw_value = assignments.get(key)
+    if raw_value is None:
+        return default
+    value = _strip_quotes(raw_value).lower()
+    if value not in choices:
+        expected = ", ".join(sorted(choices))
+        raise ValueError(f"{key} must be one of {expected}, received {raw_value!r}.")
+    return value
 
 
 def _parse_bond_order_cutoffs(

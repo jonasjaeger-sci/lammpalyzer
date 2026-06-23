@@ -4,10 +4,18 @@ from lammpalyze.parsers.bonds import (
     bo_to_rdkit_bond,
     first_appearance,
     map_atoms_to_mols,
+    parse_bond_observations,
     parse_bonds,
     read_reax_bonds_frame,
 )
-from lammpalyze.parsers.models import ReaxBond, TrajectoryAtom, TrajectoryFrame
+from lammpalyze.parsers.models import (
+    BondParseResult,
+    ChargeStatistics,
+    ComponentProperties,
+    ReaxBond,
+    TrajectoryAtom,
+    TrajectoryFrame,
+)
 from lammpalyze.parsers.species import eval_species
 from lammpalyze.parsers.thermo import eval_thermo
 from lammpalyze.parsers.trajectory import (
@@ -19,6 +27,9 @@ from lammpalyze.parsers.trajectory import (
 )
 
 __all__ = [
+    "BondParseResult",
+    "ChargeStatistics",
+    "ComponentProperties",
     "ReaxBond",
     "TrajectoryAtom",
     "TrajectoryFrame",
@@ -30,6 +41,7 @@ __all__ = [
     "iter_lammpstrj_frames",
     "list_lammpstrj_timesteps",
     "map_atoms_to_mols",
+    "parse_bond_observations",
     "parse_bonds",
     "parse_traj",
     "read_lammpstrj_frame",

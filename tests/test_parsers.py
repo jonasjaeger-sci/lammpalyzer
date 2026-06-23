@@ -9,6 +9,7 @@ from lammpalyze.parsers import (
     eval_species,
     eval_thermo,
     iter_lammpstrj_frames,
+    parse_bond_observations,
     parse_bonds,
 )
 
@@ -187,3 +188,113 @@ def test_parse_bonds_keeps_bond_equal_to_cutoff(tmp_path: Path):
     )
 
     assert smiles_atoms[0] == [["1", "2"]]
+
+
+def test_parse_bonds_filters_one_frame_bond_state_flicker(tmp_path: Path):
+    """Keep an accepted bond when its disappearance does not persist."""
+
+    pytest.importorskip("rdkit")
+    bond_file = tmp_path / "bonds.reax"
+    bond_file.write_text(
+        """# Timestep 0
+# Number of particles 2
+1 1 1 2 0 0.8 0.8 0 0.1
+2 2 1 1 0 0.8 0.8 0 -0.1
+# Timestep 10
+# Number of particles 2
+1 1 0 0 0 0 0.1
+2 2 0 0 0 0 -0.1
+# Timestep 20
+# Number of particles 2
+1 1 1 2 0 0.8 0.8 0 0.1
+2 2 1 1 0 0.8 0.8 0 -0.1
+""",
+        encoding="utf-8",
+    )
+
+    result = parse_bond_observations(
+        bond_file,
+        {1: "C", 2: "H"},
+        bond_state_persistence_frames=2,
+    )
+
+    assert result.smiles_atoms == {0: [["1", "2"]], 10: [["1", "2"]], 20: [["1", "2"]]}
+
+
+def test_parse_bonds_accepts_transition_after_configured_timestep_duration(tmp_path: Path):
+    """Use elapsed simulation timesteps independently of bond-frame frequency."""
+
+    pytest.importorskip("rdkit")
+    bond_file = tmp_path / "bonds.reax"
+    unbonded = "1 1 0 0 0 0 0.1\n2 2 0 0 0 0 -0.1\n"
+    bonded = "1 1 1 2 0 0.8 0.8 0 0.1\n2 2 1 1 0 0.8 0.8 0 -0.1\n"
+    bond_file.write_text(
+        "# Timestep 0\n# Number of particles 2\n"
+        + unbonded
+        + "# Timestep 10\n# Number of particles 2\n"
+        + bonded
+        + "# Timestep 20\n# Number of particles 2\n"
+        + bonded
+        + "# Timestep 110\n# Number of particles 2\n"
+        + bonded,
+        encoding="utf-8",
+    )
+
+    result = parse_bond_observations(
+        bond_file,
+        {1: "C", 2: "H"},
+        bond_state_persistence_timesteps=100,
+    )
+
+    assert result.smiles_atoms[20] == [["1"], ["2"]]
+    assert result.smiles_atoms[110] == [["1", "2"]]
+
+
+def test_parse_bonds_calculates_component_and_element_charge_statistics(tmp_path: Path):
+    """Aggregate continuous ReaxFF charges without assigning formal charges."""
+
+    pytest.importorskip("rdkit")
+    bond_file = tmp_path / "bonds.reax"
+    bond_file.write_text(
+        """# Timestep 0
+# Number of particles 3
+1 1 2 2 3 0 0.8 0.8 1.6 0 0.8
+2 2 1 1 0 0.8 0.8 0 0.1
+3 2 1 1 0 0.8 0.8 0 -0.1
+""",
+        encoding="utf-8",
+    )
+
+    result = parse_bond_observations(bond_file, {1: "C", 2: "H"})
+
+    assert result.atom_charges[0] == {"1": 0.8, "2": 0.1, "3": -0.1}
+    assert result.charge_statistics[0]["H"].mean == 0.0
+    assert result.charge_statistics[0]["H"].std == pytest.approx(0.1)
+    assert result.component_properties[0][0].charge == pytest.approx(0.8)
+    assert result.component_properties[0][0].ion_candidate == "cation candidate"
+
+
+def test_parse_bonds_flags_and_excludes_high_valence_components(tmp_path: Path):
+    """Record conservative quality flags and exclusion indexes for reactions."""
+
+    pytest.importorskip("rdkit")
+    bond_file = tmp_path / "bonds.reax"
+    hydrogen_rows = "".join(
+        f"{atom_id} 2 1 1 0 1.0 1.0 0 0.0\n" for atom_id in range(2, 7)
+    )
+    bond_file.write_text(
+        "# Timestep 0\n# Number of particles 6\n"
+        "1 1 5 2 3 4 5 6 0 1.0 1.0 1.0 1.0 1.0 5.0 0 0.0\n"
+        + hydrogen_rows,
+        encoding="utf-8",
+    )
+
+    result = parse_bond_observations(
+        bond_file,
+        {1: "C", 2: "H"},
+        structure_quality_mode="exclude",
+    )
+
+    assert result.component_properties[0][0].suspicious
+    assert "exceeds supported valence 4" in result.component_properties[0][0].warnings[0]
+    assert result.excluded_components[0] == {0}

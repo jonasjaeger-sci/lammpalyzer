@@ -119,3 +119,50 @@ def test_parse_input_file_rejects_cutoff_types_outside_element_list(tmp_path: Pa
 
     with pytest.raises(ValueError, match="element_list defines types 1 through 2"):
         parse_input_file(input_file)
+
+
+def test_parse_input_file_reads_temporal_quality_and_charge_settings(tmp_path: Path):
+    """Read configurable filtering, quality, and ion-candidate settings."""
+
+    input_file = tmp_path / "lmplyz.inp"
+    input_file.write_text(
+        """
+        element_list = ["C", "H"]
+        bond_state_persistence_frames = 3
+        bond_state_persistence_timesteps = 100
+        bond_order_hysteresis = 0.05
+        structure_quality_mode = exclude
+        ion_charge_threshold = 0.7
+        BF1 = bonds.reax
+        """,
+        encoding="utf-8",
+    )
+
+    config = parse_input_file(input_file)
+
+    assert config.bond_state_persistence_frames == 3
+    assert config.bond_state_persistence_timesteps == 100
+    assert config.bond_order_hysteresis == 0.05
+    assert config.structure_quality_mode == "exclude"
+    assert config.ion_charge_threshold == 0.7
+
+
+@pytest.mark.parametrize(
+    ("setting", "message"),
+    [
+        ("bond_state_persistence_frames = 0", "must be at least 1"),
+        ("bond_state_persistence_timesteps = -1", "must be at least 0"),
+        ("structure_quality_mode = discard", "must be one of"),
+    ],
+)
+def test_parse_input_file_rejects_invalid_analysis_settings(tmp_path: Path, setting: str, message: str):
+    """Reject invalid temporal and structure-quality options."""
+
+    input_file = tmp_path / "lmplyz.inp"
+    input_file.write_text(
+        f'element_list = ["C", "H"]\n{setting}\nBF1 = bonds.reax\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=message):
+        parse_input_file(input_file)

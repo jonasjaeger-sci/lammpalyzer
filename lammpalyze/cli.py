@@ -96,6 +96,16 @@ def main(argv: list[str] | None = None) -> int:
                 "run_date": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
                 "simulation_ids": simulation_indices,
                 "software_version": VERSION,
+                "default_bond_order_cutoff": config.default_bond_order_cutoff,
+                "bond_order_cutoffs": [
+                    f"{atom_a}-{atom_b}:{cutoff}"
+                    for (atom_a, atom_b), cutoff in sorted(config.bond_order_cutoffs.items())
+                ],
+                "bond_state_persistence_frames": config.bond_state_persistence_frames,
+                "bond_state_persistence_timesteps": config.bond_state_persistence_timesteps,
+                "bond_order_hysteresis": config.bond_order_hysteresis,
+                "structure_quality_mode": config.structure_quality_mode,
+                "ion_charge_threshold": config.ion_charge_threshold,
             },
         )
         print(f"Loaded {len(project.simulations)} simulation(s).")

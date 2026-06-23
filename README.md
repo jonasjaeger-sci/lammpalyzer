@@ -45,6 +45,12 @@ outputs. Relative paths are resolved relative to the input file.
 
 element_list = ["C", "H", "Li", "O"]
 
+bond_state_persistence_frames = 2
+bond_state_persistence_timesteps = 0
+bond_order_hysteresis = 0.05
+structure_quality_mode = flag
+ion_charge_threshold = 0.5
+
 # Bond Order cutoffs
 default 0.3
 3 3 0.8
@@ -73,6 +79,8 @@ The number at the end of each key groups files into simulations. For example,
 
 `element_list` maps LAMMPS atom types to element symbols. In the example above,
 atom type 1 is `C`, type 2 is `H`, type 3 is `Li`, and type 4 is `O`.
+The filtering values in the example intentionally opt into two-frame filtering;
+omitting them uses the defaults listed below.
 
 ### Input Rules
 
@@ -86,6 +94,21 @@ symbols:
 ```text
 element_list = ["C", "H", "Li", "O"]
 ```
+
+The following top-level analysis keywords are optional. Put them before the
+`# Bond Order cutoffs` section; encountering another `key = value` assignment
+ends that space-separated cutoff section.
+
+| Keyword | Default | Accepted values | Purpose |
+| --- | ---: | --- | --- |
+| `bond_state_persistence_frames` | `1` | integer >= 1 | Consecutive sampled bond frames required before accepting a changed bond state. |
+| `bond_state_persistence_timesteps` | `0` | integer >= 0 | Minimum elapsed LAMMPS timesteps for a candidate state; `0` disables this requirement. |
+| `bond_order_hysteresis` | `0.0` | finite number >= 0 | Forms connectivity at `cutoff + value` and breaks it below `cutoff - value`. |
+| `structure_quality_mode` | `flag` | `keep`, `flag`, `exclude` | Controls how suspicious components affect reporting and reaction analysis. |
+| `ion_charge_threshold` | `0.5` | finite number >= 0 | Component partial-charge magnitude used for cation/anion candidate labels; `0` disables labels. |
+
+The two persistence requirements use **AND** logic. Leaving the first three
+keywords at `1`, `0`, and `0.0` reproduces unfiltered snapshot behavior.
 
 To omit weak bonds from RDKit molecule construction, add an optional
 `# Bond Order cutoffs` section before the file sections:
@@ -119,11 +142,79 @@ written explicitly.
 
 These SMILES are labels for the thresholded snapshot graph, not validated Lewis
 structures. Coordinates, partial charges, total atom bond order, and lone-pair
-values are currently ignored; formal charges, aromaticity, and stereochemistry
-are not inferred. Consequently, cutoff crossings and short-lived or unusual
-ReaxFF configurations can produce fragmented, high-valence, or otherwise
-chemically implausible strings. Interpret reaction counts with the chosen
-cutoffs and bond-file sampling interval in mind.
+values are not used to assign bonds; formal charges, aromaticity, and
+stereochemistry are not inferred. Consequently, cutoff crossings and unusual
+ReaxFF configurations can produce fragmented or chemically implausible strings.
+
+### Temporal Filtering
+
+Temporal filtering is optional and disabled by default. A new bond state must
+satisfy both configured persistence limits before it is accepted:
+
+```text
+bond_state_persistence_frames = 2       # sampled bond frames, minimum 1
+bond_state_persistence_timesteps = 100  # elapsed LAMMPS steps, 0 disables
+bond_order_hysteresis = 0.05            # form above cutoff+value, break below cutoff-value
+```
+
+The first bond-file frame establishes the baseline immediately. After that,
+persistence applies to bond formation, breaking, and single/double/triple order
+changes. If frames are written every 100 timesteps, a candidate first seen at
+100 and retained at 200 satisfies `bond_state_persistence_frames = 2` at frame
+200. Adding `bond_state_persistence_timesteps = 500` delays acceptance until the
+first later sampled frame that is both the required consecutive observation and
+at least 500 timesteps after the candidate began. Accepted changes are therefore
+timestamped at the confirming frame, not backdated.
+
+Frame counts are convenient for fixed dump frequencies; elapsed timesteps remain
+meaningful when sampling intervals differ. Hysteresis applies to connectivity,
+while persistence also suppresses brief changes across the single/double/triple
+boundaries at 1.5 and 2.5. A ReaxFF bond file cannot recover bond orders already
+omitted by the coarse cutoff used when LAMMPS wrote it.
+
+Filtering is applied during project loading and has no separate GUI control.
+Reload lammpalyze after changing these keywords. Its effects appear in
+`Reaction paths`, `Connected pathways`, `Reaction visualization`, exported
+`paths.csv`, and the structures available in `Molecule visualization`. It does
+not alter species-file, thermodynamic, RDF, or per-element atomic-charge data.
+
+### Structure Quality Modes and Partial Charges
+
+Lammpalyze records component partial-charge totals, per-element atomic charge
+means and population standard deviations, ion candidates whose component charge
+magnitude reaches `ion_charge_threshold` (default `0.5` e), and conservative
+valence/sanitization warnings for common covalent nonmetals. Metals are not
+judged by ordinary covalent valence limits. Partial charges remain continuous
+values and are not converted directly into formal SMILES charges. Choose how
+suspicious components affect reaction analysis with:
+
+```text
+structure_quality_mode = keep     # retain all components
+structure_quality_mode = flag     # retain and report suspicious components (default)
+structure_quality_mode = exclude  # skip reactions touching suspicious components
+```
+
+For `H`, `B`, `C`, `N`, `O`, `F`, `Si`, `P`, `S`, `Cl`, `Br`, and `I`, the
+discrete single/double/triple bond-valence sum is compared with RDKit's supported
+valences. Components composed entirely of those elements and without an obvious
+excess are also passed through RDKit sanitization. Ordinary covalent valence
+limits are not applied to metals such as Li; checked nonmetal atoms in mixed
+components are still tested.
+
+- `keep` retains every component in reaction analysis and suppresses the load
+  warning summary, while keeping quality metadata available for inspection.
+- `flag` retains every component, reports the number of suspicious observations
+  during loading, and is the default exploratory mode.
+- `exclude` preserves raw components and metadata but skips any complete
+  reaction event touching a suspicious reactant or product. This avoids creating
+  artificial molecule-appearance or disappearance reactions.
+
+The molecule tab summarizes component-charge ranges, ion-candidate counts, and
+suspicious-observation counts for a selected SMILES. The `Atomic charges` tab
+plots each element's mean atomic partial charge at every bond-file timestep with
+a population-standard-deviation band, error bars, or no uncertainty display.
+Partial charges remain continuous ReaxFF values and are not rounded into formal
+SMILES charges.
 
 File entries use a short prefix plus an optional simulation number. For example,
 `BF1`, `SF1`, `ThermoF1`, and `TrajF1` are grouped as simulation 1; `BF2`,
@@ -187,7 +278,11 @@ The GUI contains tabs for common analysis tasks:
   simulations, edit legend labels, and adjust x/y axis ranges.
 - `Radial distribution`: calculate RDF curves for selected element pairs such as
   `Li-Li` or `Li-O`, with selectable simulations, timestep range, and bin width.
-- `Molecule visualization`: render a selected SMILES molecule image.
+- `Atomic charges`: plot per-element mean ReaxFF partial charges over time with
+  population-standard-deviation bands or error bars, selecting simulations,
+  elements, uncertainty style, timestep range, and plot background.
+- `Molecule visualization`: render one or all observed SMILES structures for a
+  formula and summarize component charges, ion candidates, and quality flags.
 - `Reaction paths`: view total and per-simulation reaction path counts, then copy
   only the reaction path string.
 - `Connected pathways`: view connected reaction states by pathway depth in
@@ -207,6 +302,13 @@ input_file,/path/to/lmplyz.inp
 run_date,2026-05-29T15:20:30+02:00
 simulation_ids,1;2
 software_version,1.3.0
+default_bond_order_cutoff,0.3
+bond_order_cutoffs,3-3:0.8;3-4:0.55
+bond_state_persistence_frames,2
+bond_state_persistence_timesteps,0
+bond_order_hysteresis,0.05
+structure_quality_mode,flag
+ion_charge_threshold,0.5
 
 Reaction,Simulation 1,Simulation 2,Sum
 "['[H][H]'] -> ['[H]', '[H]']",2,1,3
@@ -249,10 +351,9 @@ python -m pydocstyle lammpalyze tests
 python -m pylint lammpalyze
 ```
 
-The `lammpalyze` and `tests` arguments mean the checks cover both package
-source code and tests. `pycodestyle` reads its line-length setting from
-`setup.cfg`; `pytest`, `pydocstyle`, and `pylint` read their project settings
-from `pyproject.toml`.
+The style and docstring checks cover both package source and tests; Pylint checks
+the package. `pycodestyle` reads its line-length setting from `setup.cfg`, while
+`pytest`, `pydocstyle`, and `pylint` read project settings from `pyproject.toml`.
 
 ## Package Layout
 
@@ -267,6 +368,7 @@ lammpalyze/
   plotting.py     Matplotlib plotting helpers
   parsers/        species, thermo, bond, and trajectory readers
   gui/            Tkinter GUI tabs and application shell
+    charge_tab.py atomic partial-charge plotting tab
   smiles.py       SMILES utilities and molecule rendering
   ovito.py        OVITO scene generation
 examples/

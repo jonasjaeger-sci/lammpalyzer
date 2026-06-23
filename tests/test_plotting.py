@@ -10,7 +10,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from lammpalyze.analysis import LoadedSimulation  # noqa: E402
-from lammpalyze.plotting import plot_rdf, plot_species, plot_thermo  # noqa: E402
+from lammpalyze.parsers import ChargeStatistics  # noqa: E402
+from lammpalyze.plotting import plot_charge_evolution, plot_rdf, plot_species, plot_thermo  # noqa: E402
 from lammpalyze.rdf import RDFResult  # noqa: E402
 
 
@@ -201,6 +202,26 @@ def test_plot_species_filters_timesteps_and_applies_step_range():
     np.testing.assert_allclose(figures[0].axes[0].lines[0].get_ydata(), [2])
     np.testing.assert_allclose(figures[1].axes[0].lines[0].get_xdata(), [20])
     np.testing.assert_allclose(figures[1].axes[0].lines[0].get_ydata(), [50])
+
+
+def test_plot_charge_evolution_draws_element_means_and_standard_deviation_band():
+    """Plot per-frame charge means and within-element population deviations."""
+
+    simulation = LoadedSimulation(
+        index=1,
+        charge_statistics={
+            0: {"Li": ChargeStatistics(mean=0.5, std=0.1, count=4)},
+            10: {"Li": ChargeStatistics(mean=0.6, std=0.2, count=4)},
+        },
+    )
+
+    figure = plot_charge_evolution([simulation], ["Li"], uncertainty="band")
+
+    axis = figure.axes[0]
+    assert axis.lines[0].get_label() == "Simulation 1 Li"
+    np.testing.assert_allclose(axis.lines[0].get_ydata(), [0.5, 0.6])
+    assert len(axis.collections) == 1
+    assert axis.get_ylabel() == "Mean partial charge [e]"
 
 
 def test_plot_rdf_does_not_add_cross_simulation_mean():

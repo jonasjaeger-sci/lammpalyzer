@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from pathlib import Path
+from statistics import fmean
 
 from lammpalyze.reactions import (
     ConnectedReactionPathway,
@@ -105,6 +107,38 @@ def connected_reaction_pathway_data(
     """Return connected reaction pathways in formula or SMILES notation."""
 
     return build_connected_reaction_pathways(simulations, notation=notation, min_count=min_count)
+
+
+def molecule_observation_summary(simulation, target_smiles: str) -> str:
+    """Summarize component charge, ion candidates, and flags for one SMILES."""
+
+    if not simulation.smiles or not simulation.component_properties or not target_smiles:
+        return ""
+    observations = [
+        simulation.component_properties[timestep][index]
+        for timestep, smiles_values in simulation.smiles.items()
+        for index, smiles in enumerate(smiles_values)
+        if smiles == target_smiles
+        and timestep in simulation.component_properties
+        and index < len(simulation.component_properties[timestep])
+    ]
+    if not observations:
+        return ""
+    charges = [properties.charge for properties in observations]
+    ion_counts = Counter(
+        properties.ion_candidate for properties in observations if properties.ion_candidate
+    )
+    suspicious_count = sum(properties.suspicious for properties in observations)
+    summary = (
+        f"Observed {len(observations)} time(s); component charge mean {fmean(charges):+.3f} e "
+        f"(range {min(charges):+.3f} to {max(charges):+.3f} e)."
+    )
+    if ion_counts:
+        labels = ", ".join(f"{label}: {count}" for label, count in sorted(ion_counts.items()))
+        summary += f" Ion candidates: {labels}."
+    if suspicious_count:
+        summary += f" Suspicious observations: {suspicious_count}."
+    return summary
 
 
 def image_output_path(filename: str) -> Path:

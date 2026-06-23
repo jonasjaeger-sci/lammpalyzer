@@ -10,6 +10,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from lammpalyze.analysis import LammpalyzeProject
 from lammpalyze.gui.canvas import CanvasMixin
+from lammpalyze.gui.charge_tab import ChargeTabMixin
 from lammpalyze.gui.molecule_tab import MoleculeTabMixin
 from lammpalyze.gui.rdf_tab import RdfTabMixin
 from lammpalyze.gui.reactions_tab import ReactionTabMixin
@@ -20,6 +21,7 @@ from lammpalyze.gui.thermo_tab import ThermoTabMixin
 class LammpalyzeGUI(
     SpeciesTabMixin,
     ThermoTabMixin,
+    ChargeTabMixin,
     RdfTabMixin,
     MoleculeTabMixin,
     ReactionTabMixin,
@@ -42,6 +44,7 @@ class LammpalyzeGUI(
         self._species_canvases: list[FigureCanvasTkAgg] = []
         self._thermo_canvases: list[FigureCanvasTkAgg] = []
         self._rdf_canvas: FigureCanvasTkAgg | None = None
+        self._charge_canvas: FigureCanvasTkAgg | None = None
         self._rdf_timesteps_by_simulation: dict[int, list[int]] = {}
         self._molecule_photo = None
         self._molecule_smiles: str | None = None
@@ -80,6 +83,7 @@ class LammpalyzeGUI(
         species_tab = ttk.Frame(tabs)
         thermo_tab = ttk.Frame(tabs)
         rdf_tab = ttk.Frame(tabs)
+        charge_tab = ttk.Frame(tabs)
         smiles_tab = ttk.Frame(tabs)
         reaction_table_tab = ttk.Frame(tabs)
         connected_pathways_tab = ttk.Frame(tabs)
@@ -87,6 +91,7 @@ class LammpalyzeGUI(
         tabs.add(species_tab, text="Species analysis")
         tabs.add(thermo_tab, text="Thermodynamic data")
         tabs.add(rdf_tab, text="Radial distribution")
+        tabs.add(charge_tab, text="Atomic charges")
         tabs.add(smiles_tab, text="Molecule visualization")
         tabs.add(reaction_table_tab, text="Reaction paths")
         tabs.add(connected_pathways_tab, text="Connected pathways")
@@ -95,6 +100,7 @@ class LammpalyzeGUI(
         self._build_species_tab(species_tab)
         self._build_thermo_tab(thermo_tab)
         self._build_rdf_tab(rdf_tab)
+        self._build_charge_tab(charge_tab)
         self._build_smiles_tab(smiles_tab)
         self._build_reaction_table_tab(reaction_table_tab)
         self._build_connected_pathways_tab(connected_pathways_tab)
@@ -114,6 +120,10 @@ class LammpalyzeGUI(
         if self._rdf_canvas is not None:
             self._destroy_canvas(self._rdf_canvas)
             self._rdf_canvas = None
+
+        if self._charge_canvas is not None:
+            self._destroy_canvas(self._charge_canvas)
+            self._charge_canvas = None
 
         for canvas in self._thermo_canvases:
             self._destroy_canvas(canvas)

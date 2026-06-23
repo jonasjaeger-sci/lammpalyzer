@@ -13,7 +13,17 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
     """Load a project, write paths, and skip GUI startup when requested."""
 
     calls = {}
-    config = SimpleNamespace(name="config", input_file=tmp_path / "lmplyz.inp")
+    config = SimpleNamespace(
+        name="config",
+        input_file=tmp_path / "lmplyz.inp",
+        default_bond_order_cutoff=0.3,
+        bond_order_cutoffs={},
+        bond_state_persistence_frames=1,
+        bond_state_persistence_timesteps=0,
+        bond_order_hysteresis=0.0,
+        structure_quality_mode="flag",
+        ion_charge_threshold=0.5,
+    )
     paths = [SimpleNamespace(reaction="A -> B", count=2)]
     project = SimpleNamespace(
         simulations=[object(), object()],
@@ -70,6 +80,13 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
                 "run_date": calls["writer_kwargs"]["metadata"]["run_date"],
                 "simulation_ids": [1, 2],
                 "software_version": cli.VERSION,
+                "default_bond_order_cutoff": 0.3,
+                "bond_order_cutoffs": [],
+                "bond_state_persistence_frames": 1,
+                "bond_state_persistence_timesteps": 0,
+                "bond_order_hysteresis": 0.0,
+                "structure_quality_mode": "flag",
+                "ion_charge_threshold": 0.5,
             },
         },
     }
@@ -105,13 +122,14 @@ def test_lammpalyze_example_cli_writes_expected_paths(tmp_path: Path):
     assert b"\r\n" not in output_path.read_bytes()
 
     rows = list(csv.reader(output_path.open(encoding="utf-8", newline="")))
-    metadata = dict(rows[1:5])
+    blank_row = rows.index([])
+    metadata = dict(rows[1:blank_row])
     assert rows[0] == ["Metadata", "Value"]
     assert metadata["input_file"] == str((example_dir / "lmplyz.inp").resolve())
     assert metadata["simulation_ids"] == "1;2"
     assert metadata["software_version"] == cli.VERSION
 
-    table = rows[6:]
+    table = rows[blank_row + 1:]
     assert table[0] == ["Reaction", "Simulation 1", "Simulation 2", "Sum"]
     assert len(table[1:]) == 388
     assert all(int(row[1]) + int(row[2]) == int(row[3]) for row in table[1:])
