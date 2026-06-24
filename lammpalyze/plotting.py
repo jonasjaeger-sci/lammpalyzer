@@ -2,14 +2,27 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 from itertools import cycle
 
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from lammpalyze.analysis import LoadedSimulation, aggregate_thermo
-from lammpalyze.rdf import RDFResult
 
 ReferenceLines = tuple[list[float], list[float]]
+LEGEND_LOCATIONS = {
+    "best",
+    "upper right",
+    "upper left",
+    "lower left",
+    "lower right",
+    "center left",
+    "center right",
+    "lower center",
+    "upper center",
+    "center",
+}
 
 SPECIES_DARK_COLORS = [
     "#4cc9f0",
@@ -207,38 +220,11 @@ def _filtered_species_frame(
     return frame
 
 
-def plot_rdf(
-    results: list[RDFResult],
-    element_a: str,
-    element_b: str,
-    reference_lines: ReferenceLines | None = None,
-    theme: str = "dark",
-    gradient_colors: tuple[str, str] | None = None,
-):
-    """Plot one time-averaged RDF curve per selected simulation."""
+def plot_rdf(*args, **kwargs):
+    """Forward RDF rendering to its dedicated module for API compatibility."""
 
-    if not results:
-        raise ValueError("No RDF data to plot.")
-
-    style = _theme_colors(theme)
-    fig, ax = plt.subplots(figsize=(8.5, 4.8), facecolor=style["figure"])
-    line_colors = _line_colors(len(results), gradient_colors)
-    for result, color in zip(results, line_colors, strict=False):
-        ax.plot(
-            result.r,
-            result.g_r,
-            color=color,
-            linewidth=2.0,
-            label=f"Simulation {result.simulation_index}",
-        )
-
-    _style_axes(ax, f"RDF {element_a}-{element_b}", "g(r)", style, x_label="r [A]")
-    _add_reference_lines(ax, reference_lines, color=style["text"])
-    legend = ax.legend(frameon=False)
-    for text in legend.get_texts():
-        text.set_color(style["text"])
-    fig.tight_layout()
-    return fig
+    rdf_plotting = import_module("lammpalyze.rdf_plotting")
+    return rdf_plotting.plot_rdf(*args, **kwargs)
 
 
 def plot_charge_evolution(
@@ -302,6 +288,379 @@ def plot_charge_evolution(
     _style_axes(ax, "Atomic partial charges", "Mean partial charge [e]", style, x_label="Timestep")
     _apply_step_range(ax, step_range)
     legend = ax.legend(frameon=False, fontsize="small")
+    for text in legend.get_texts():
+        text.set_color(style["text"])
+    fig.tight_layout()
+    return fig
+
+
+def plot_msd(
+    simulations: list[LoadedSimulation],
+    selections: list[tuple[int, str]],
+    *,
+    step_range: tuple[float, float] | None = None,
+    y_range: tuple[float, float] | None = None,
+    running_average_points: int | None = None,
+    reference_lines: ReferenceLines | None = None,
+    average_groups: list[list[int]] | None = None,
+    average_group_labels: list[str] | None = None,
+    legend_location: str = "best",
+    theme: str = "dark",
+):
+    """Plot selected MSD series and a grouped mean/standard-deviation figure."""
+
+    average_groups = average_groups or None
+    simulation_by_index = {simulation.index: simulation for simulation in simulations}
+    selected_series = []
+    for simulation_index, column in selections:
+        simulation = simulation_by_index.get(simulation_index)
+        if simulation is None or simulation.msd_df is None or column not in simulation.msd_df.columns:
+            continue
+        selected_series.append(
+            (
+                simulation_index,
+                simulation.msd_df["Timestep"],
+                simulation.msd_df[column],
+                f"MSD{simulation_index} - {column}",
+            )
+        )
+    combined = _plot_computed_series(
+        [(x_values, y_values, label) for _, x_values, y_values, label in selected_series],
+        title="Mean-square displacement",
+        y_label="Mean-square displacement",
+        step_range=step_range,
+        y_range=y_range,
+        running_average_points=running_average_points,
+        reference_lines=reference_lines,
+        legend_location=legend_location,
+        theme=theme,
+    )
+    try:
+        averaged = _plot_msd_averages(
+            selected_series,
+            average_groups=average_groups,
+            average_group_labels=average_group_labels,
+            step_range=step_range,
+            y_range=y_range,
+            reference_lines=reference_lines,
+            legend_location=legend_location,
+            theme=theme,
+        )
+    except Exception:
+        plt.close(combined)
+        raise
+    return [combined, averaged]
+
+
+def plot_pairwise(
+    simulations: list[LoadedSimulation],
+    parameter: str,
+    selections: list[tuple[int, str]],
+    *,
+    step_range: tuple[float, float] | None = None,
+    y_range: tuple[float, float] | None = None,
+    running_average_points: int | None = None,
+    reference_lines: ReferenceLines | None = None,
+    molecule_atom: tuple[int, int] | None = None,
+    molecule_notation: str = "formula",
+    legend_location: str = "best",
+    theme: str = "dark",
+):
+    """Plot one local-dump value over time for selected particle pairs."""
+
+    simulation_by_index = {simulation.index: simulation for simulation in simulations}
+    series = []
+    for simulation_index, pair in selections:
+        simulation = simulation_by_index.get(simulation_index)
+        if simulation is None or simulation.pairwise_df is None:
+            continue
+        frame = simulation.pairwise_df
+        if parameter not in frame.columns:
+            continue
+        pair_frame = frame[frame["Pair"] == pair].sort_values("Timestep")
+        if pair_frame.empty:
+            continue
+        series.append(
+            (
+                pair_frame["Timestep"],
+                pair_frame[parameter],
+                f"Dump{simulation_index} - {pair}",
+            )
+        )
+    figure = _plot_computed_series(
+        series,
+        title=f"Pairwise data: {parameter}",
+        y_label=parameter,
+        step_range=step_range,
+        y_range=y_range,
+        running_average_points=running_average_points,
+        reference_lines=reference_lines,
+        legend_location=legend_location,
+        theme=theme,
+    )
+    if molecule_atom is not None:
+        simulation_index, atom_id = molecule_atom
+        simulation = simulation_by_index.get(simulation_index)
+        if simulation is None:
+            plt.close(figure)
+            raise ValueError(f"Simulation {simulation_index} is unavailable for atom tracking.")
+        try:
+            _add_atom_molecule_axis(
+                figure.axes[0],
+                simulation,
+                atom_id,
+                notation=molecule_notation,
+                legend_location=legend_location,
+                theme=theme,
+            )
+        except Exception:
+            plt.close(figure)
+            raise
+        figure.tight_layout()
+    return figure
+
+
+def _plot_msd_averages(
+    selected_series,
+    *,
+    average_groups: list[list[int]] | None,
+    average_group_labels: list[str] | None,
+    step_range: tuple[float, float] | None,
+    y_range: tuple[float, float] | None,
+    reference_lines: ReferenceLines | None,
+    legend_location: str,
+    theme: str,
+):
+    """Plot aligned MSD means and standard deviations for requested groups."""
+
+    if not selected_series:
+        raise ValueError("No matching MSD data found for the selected series.")
+    style = _theme_colors(theme)
+    specs = _msd_average_specs(selected_series, average_groups, average_group_labels)
+    fig, ax = plt.subplots(figsize=(8.5, 4.8), facecolor=style["figure"])
+    colors = _line_colors(len(specs), None)
+    for (label, group_series), color in zip(specs, colors, strict=True):
+        averaged = _average_computed_series(group_series)
+        mean_label = "Mean" if average_groups is None else f"{label} mean"
+        std_label = "Std. dev." if average_groups is None else f"{label} std. dev."
+        ax.plot(
+            averaged["Timestep"],
+            averaged["mean"],
+            color=color,
+            linewidth=2.2,
+            label=mean_label,
+        )
+        ax.fill_between(
+            averaged["Timestep"],
+            averaged["mean"] - averaged["std"],
+            averaged["mean"] + averaged["std"],
+            color=color,
+            alpha=0.22,
+            label=std_label,
+        )
+    _style_axes(
+        ax,
+        "Average mean-square displacement",
+        "Mean-square displacement",
+        style,
+        x_label="Timestep",
+    )
+    _apply_step_range(ax, step_range)
+    _apply_y_range(ax, y_range)
+    _add_reference_lines(ax, reference_lines, color=style["text"])
+    legend = ax.legend(
+        loc=_validated_legend_location(legend_location),
+        frameon=False,
+        fontsize="small",
+    )
+    for text in legend.get_texts():
+        text.set_color(style["text"])
+    fig.tight_layout()
+    return fig
+
+
+def _msd_average_specs(selected_series, average_groups, average_group_labels):
+    """Build labelled selections for each requested MSD average group."""
+
+    if not average_groups:
+        return [("", selected_series)]
+    specs = []
+    for position, group in enumerate(average_groups):
+        group_series = [series for series in selected_series if series[0] in group]
+        if not group_series:
+            continue
+        label = "R" + ",R".join(str(index) for index in group)
+        if average_group_labels is not None and position < len(average_group_labels):
+            label = average_group_labels[position].strip() or label
+        specs.append((label, group_series))
+    if not specs:
+        raise ValueError("No average groups match the selected MSD series.")
+    return specs
+
+
+def _average_computed_series(selected_series) -> pd.DataFrame:
+    """Align selected computed curves by timestep and calculate mean and std."""
+
+    frames = []
+    for position, (_, x_values, y_values, _) in enumerate(selected_series):
+        frame = pd.DataFrame({"Timestep": x_values, f"series_{position}": y_values}).dropna()
+        frames.append(frame)
+    merged = frames[0]
+    for frame in frames[1:]:
+        merged = merged.merge(frame, on="Timestep", how="inner")
+    if merged.empty:
+        raise ValueError("Selected MSD series have no common timesteps for averaging.")
+    value_columns = [column for column in merged.columns if column != "Timestep"]
+    return pd.DataFrame(
+        {
+            "Timestep": merged["Timestep"],
+            "mean": merged[value_columns].mean(axis=1),
+            "std": merged[value_columns].std(axis=1).fillna(0.0),
+        }
+    )
+
+
+def atom_molecule_membership(
+    simulation: LoadedSimulation,
+    atom_id: int,
+    notation: str = "formula",
+) -> tuple[list[int], list[int], dict[int, str]]:
+    """Numerize the molecule containing one atom at each parsed bond timestep."""
+
+    normalized_notation = notation.strip().lower()
+    if normalized_notation not in {"formula", "smiles"}:
+        raise ValueError("Molecule notation must be 'formula' or 'smiles'.")
+    molecule_values = simulation.chem_formulas if normalized_notation == "formula" else simulation.smiles
+    if not simulation.smiles_id or not molecule_values:
+        raise ValueError(f"Simulation {simulation.index} has no bond-derived molecule data.")
+
+    atom_key = str(atom_id)
+    timesteps = []
+    numeric_values = []
+    label_to_number: dict[str, int] = {}
+    for timestep, components in sorted(simulation.smiles_id.items()):
+        labels = molecule_values.get(timestep, [])
+        for component_index, component_atoms in enumerate(components):
+            if not any(str(value) == atom_key for value in component_atoms) or component_index >= len(labels):
+                continue
+            label = labels[component_index]
+            number = label_to_number.setdefault(label, len(label_to_number) + 1)
+            timesteps.append(timestep)
+            numeric_values.append(number)
+            break
+    if not timesteps:
+        raise ValueError(
+            f"Atom {atom_id} was not found in simulation {simulation.index} molecule observations."
+        )
+    number_to_label = {number: label for label, number in label_to_number.items()}
+    return timesteps, numeric_values, number_to_label
+
+
+def _add_atom_molecule_axis(
+    axis,
+    simulation: LoadedSimulation,
+    atom_id: int,
+    *,
+    notation: str,
+    legend_location: str,
+    theme: str,
+) -> None:
+    """Add a numbered molecule-membership track to a pairwise plot."""
+
+    timesteps, numeric_values, number_to_label = atom_molecule_membership(
+        simulation,
+        atom_id,
+        notation,
+    )
+    style = _theme_colors(theme)
+    molecule_axis = axis.twinx()
+    molecule_axis.step(
+        timesteps,
+        numeric_values,
+        where="post",
+        color=style["mean"],
+        linewidth=2.0,
+        alpha=0.9,
+        label=f"Atom {atom_id} molecule",
+    )
+    ticks = sorted(number_to_label)
+    molecule_axis.set_yticks(ticks)
+    molecule_axis.set_yticklabels([f"{number}: {number_to_label[number]}" for number in ticks])
+    molecule_axis.set_ylabel(
+        f"Atom {atom_id} molecule ({'formula' if notation == 'formula' else 'SMILES'})",
+        color=style["mean"],
+        fontsize=13,
+        fontweight="bold",
+    )
+    molecule_axis.tick_params(axis="y", colors=style["mean"])
+    molecule_axis.spines["right"].set_color(style["mean"])
+    primary_legend = axis.get_legend()
+    if primary_legend is not None:
+        primary_legend.remove()
+    primary_handles, primary_labels = axis.get_legend_handles_labels()
+    molecule_handles, molecule_labels = molecule_axis.get_legend_handles_labels()
+    legend = axis.legend(
+        [*primary_handles, *molecule_handles],
+        [*primary_labels, *molecule_labels],
+        loc=_validated_legend_location(legend_location),
+        frameon=False,
+        fontsize="small",
+    )
+    for text in legend.get_texts():
+        text.set_color(style["text"])
+
+
+def _plot_computed_series(
+    series,
+    *,
+    title: str,
+    y_label: str,
+    step_range: tuple[float, float] | None,
+    y_range: tuple[float, float] | None,
+    running_average_points: int | None,
+    reference_lines: ReferenceLines | None,
+    legend_location: str,
+    theme: str,
+):
+    """Render selected computed-data series using the thermo visual style."""
+
+    if not series:
+        raise ValueError("No matching computed data found for the selected series.")
+    running_average_points = _validated_running_average_points(running_average_points)
+    style = _theme_colors(theme)
+    fig, ax = plt.subplots(figsize=(8.5, 4.8), facecolor=style["figure"])
+    colors = _line_colors(len(series), None)
+    plotted = 0
+    for (x_values, y_values, label), color in zip(series, colors, strict=True):
+        valid = x_values.notna() & y_values.notna()
+        x_values = x_values[valid]
+        y_values = y_values[valid]
+        if x_values.empty:
+            continue
+        ax.plot(x_values, y_values, color=color, linewidth=2.0, label=label)
+        if running_average_points is not None:
+            ax.plot(
+                x_values,
+                y_values.rolling(window=running_average_points, min_periods=1).mean(),
+                color=color,
+                linestyle="--",
+                linewidth=1.8,
+                label=f"{label} Avg",
+            )
+        plotted += 1
+    if not plotted:
+        plt.close(fig)
+        raise ValueError("The selected computed series contain no numeric observations.")
+
+    _style_axes(ax, title, y_label, style, x_label="Timestep")
+    _apply_step_range(ax, step_range)
+    _apply_y_range(ax, y_range)
+    _add_reference_lines(ax, reference_lines, color=style["text"])
+    legend = ax.legend(
+        loc=_validated_legend_location(legend_location),
+        frameon=False,
+        fontsize="small",
+    )
     for text in legend.get_texts():
         text.set_color(style["text"])
     fig.tight_layout()
@@ -465,6 +824,16 @@ def _validated_running_average_points(points: int | None) -> int | None:
     if points < 1:
         raise ValueError("Running-average points must be at least 1.")
     return points
+
+
+def _validated_legend_location(location: str) -> str:
+    """Normalize and validate a Matplotlib legend location."""
+
+    normalized = location.strip().lower()
+    if normalized not in LEGEND_LOCATIONS:
+        expected = ", ".join(sorted(LEGEND_LOCATIONS))
+        raise ValueError(f"Legend location must be one of {expected}; received {location!r}.")
+    return normalized
 
 
 def _inverse_hex_color(color: str) -> str:

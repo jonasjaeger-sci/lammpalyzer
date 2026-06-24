@@ -34,6 +34,18 @@ MOLECULE_IMAGE_FALLBACK_SIZE = (720, 520)
 MOLECULE_IMAGE_MAX_SIZE = (1800, 1400)
 MOLECULE_RESIZE_DEBOUNCE_MS = 150
 THERMO_DEFAULTS = ["Temp", "PotEng", "KinEng", "Press", "Volume", "Density"]
+LEGEND_PLACEMENTS = [
+    "Best",
+    "Upper right",
+    "Upper left",
+    "Lower left",
+    "Lower right",
+    "Center left",
+    "Center right",
+    "Lower center",
+    "Upper center",
+    "Center",
+]
 REFERENCE_LINE_SPLIT_PATTERN = re.compile(r"[\s,;]+")
 
 

@@ -11,7 +11,15 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from lammpalyze.analysis import LoadedSimulation  # noqa: E402
 from lammpalyze.parsers import ChargeStatistics  # noqa: E402
-from lammpalyze.plotting import plot_charge_evolution, plot_rdf, plot_species, plot_thermo  # noqa: E402
+from lammpalyze.plotting import (  # noqa: E402
+    atom_molecule_membership,
+    plot_charge_evolution,
+    plot_msd,
+    plot_pairwise,
+    plot_rdf,
+    plot_species,
+    plot_thermo,
+)
 from lammpalyze.rdf import RDFResult  # noqa: E402
 
 
@@ -224,18 +232,221 @@ def test_plot_charge_evolution_draws_element_means_and_standard_deviation_band()
     assert axis.get_ylabel() == "Mean partial charge [e]"
 
 
-def test_plot_rdf_does_not_add_cross_simulation_mean():
-    """Plot RDF curves without adding a cross-simulation mean."""
+def test_plot_msd_uses_independent_file_column_selections():
+    """Plot different computed MSD columns from different simulation files."""
+
+    simulations = [
+        LoadedSimulation(
+            index=1,
+            msd_df=pd.DataFrame({"Timestep": [0, 100], "c_msd_C[1]": [0.0, 0.2]}),
+        ),
+        LoadedSimulation(
+            index=2,
+            msd_df=pd.DataFrame({"Timestep": [0, 100], "c_msd_Li[4]": [0.0, 1.5]}),
+        ),
+    ]
+
+    figures = plot_msd(
+        simulations,
+        [(1, "c_msd_C[1]"), (2, "c_msd_Li[4]")],
+        legend_location="lower right",
+    )
+
+    assert len(figures) == 2
+    axis = figures[0].axes[0]
+    assert [line.get_label() for line in axis.lines] == [
+        "MSD1 - c_msd_C[1]",
+        "MSD2 - c_msd_Li[4]",
+    ]
+    np.testing.assert_allclose(axis.lines[1].get_ydata(), [0.0, 1.5])
+    assert axis.get_xlabel() == "Timestep"
+    assert axis.get_legend()._loc == 4
+    assert figures[1].axes[0].get_legend()._loc == 4
+    np.testing.assert_allclose(figures[1].axes[0].lines[0].get_ydata(), [0.0, 0.85])
+
+
+def test_plot_msd_compares_selected_average_groups():
+    """Create independent MSD mean and deviation curves for simulation groups."""
+
+    simulations = [
+        LoadedSimulation(
+            index=index,
+            msd_df=pd.DataFrame({"Timestep": [0, 100], "total": [0.0, float(index)]}),
+        )
+        for index in range(1, 5)
+    ]
+
+    figures = plot_msd(
+        simulations,
+        [(index, "total") for index in range(1, 5)],
+        average_groups=[[1, 3], [2, 4]],
+        average_group_labels=["Odd", "Even"],
+    )
+
+    average_axis = figures[1].axes[0]
+    assert [line.get_label() for line in average_axis.lines] == ["Odd mean", "Even mean"]
+    np.testing.assert_allclose(average_axis.lines[0].get_ydata(), [0.0, 2.0])
+    np.testing.assert_allclose(average_axis.lines[1].get_ydata(), [0.0, 3.0])
+    assert len(average_axis.collections) == 2
+
+
+def test_plot_pairwise_draws_selected_pair_trajectories():
+    """Plot only requested pair descriptors for the selected local-dump value."""
+
+    simulation = LoadedSimulation(
+        index=1,
+        pairwise_df=pd.DataFrame(
+            {
+                "Timestep": [0, 0, 100, 100],
+                "Pair": ["1-2", "1-3", "1-2", "1-3"],
+                "c_pdist": [1.0, 2.0, 1.2, 2.2],
+            }
+        ),
+    )
+
+    figure = plot_pairwise([simulation], "c_pdist", [(1, "1-3")])
+
+    axis = figure.axes[0]
+    assert axis.lines[0].get_label() == "Dump1 - 1-3"
+    np.testing.assert_allclose(axis.lines[0].get_xdata(), [0, 100])
+    np.testing.assert_allclose(axis.lines[0].get_ydata(), [2.0, 2.2])
+    assert axis.get_ylabel() == "c_pdist"
+
+
+def test_plot_pairwise_adds_numerized_atom_molecule_axis():
+    """Track the formula containing a selected atom on a secondary y-axis."""
+
+    simulation = LoadedSimulation(
+        index=1,
+        pairwise_df=pd.DataFrame(
+            {
+                "Timestep": [0, 100],
+                "Pair": ["1-2", "1-2"],
+                "c_pdist": [1.0, 1.2],
+            }
+        ),
+        smiles_id={0: [["1", "2"]], 100: [["1", "2", "3"]], 200: [["1", "2"]]},
+        smiles={0: ["CC"], 100: ["[Li]CC"], 200: ["CC"]},
+        chem_formulas={0: ["C2H6"], 100: ["C2H6Li"], 200: ["C2H6"]},
+    )
+
+    figure = plot_pairwise(
+        [simulation],
+        "c_pdist",
+        [(1, "1-2")],
+        molecule_atom=(1, 1),
+        molecule_notation="formula",
+        legend_location="upper left",
+    )
+
+    assert len(figure.axes) == 2
+    molecule_axis = figure.axes[1]
+    np.testing.assert_allclose(molecule_axis.lines[0].get_ydata(), [1, 2, 1])
+    assert [tick.get_text() for tick in molecule_axis.get_yticklabels()] == [
+        "1: C2H6",
+        "2: C2H6Li",
+    ]
+    assert molecule_axis.get_ylabel() == "Atom 1 molecule (formula)"
+    assert figure.axes[0].get_legend()._loc == 2
+    assert [text.get_text() for text in figure.axes[0].get_legend().get_texts()] == [
+        "Dump1 - 1-2",
+        "Atom 1 molecule",
+    ]
+
+
+def test_atom_molecule_membership_supports_smiles_notation():
+    """Numerize recurring SMILES labels consistently across bond timesteps."""
+
+    simulation = LoadedSimulation(
+        index=3,
+        smiles_id={0: [["7"]], 10: [["7", "8"]], 20: [["7"]]},
+        smiles={0: ["[Li]"], 10: ["[Li]O"], 20: ["[Li]"]},
+        chem_formulas={0: ["Li"], 10: ["LiO"], 20: ["Li"]},
+    )
+
+    timesteps, values, labels = atom_molecule_membership(simulation, 7, "smiles")
+
+    assert timesteps == [0, 10, 20]
+    assert values == [1, 2, 1]
+    assert labels == {1: "[Li]", 2: "[Li]O"}
+
+
+def test_plot_rdf_returns_selected_and_cross_simulation_average_figures():
+    """Plot selected RDF curves plus their aligned mean and deviation band."""
 
     results = [
         RDFResult(simulation_index=1, r=np.array([0.5, 1.5]), g_r=np.array([1.0, 2.0]), timesteps=[0]),
         RDFResult(simulation_index=2, r=np.array([0.5, 1.5]), g_r=np.array([2.0, 3.0]), timesteps=[0]),
     ]
 
-    figure = plot_rdf(results, "Li", "O")
+    figures = plot_rdf(results, "Li", "O")
 
-    assert len(figure.axes[0].lines) == 2
-    assert [line.get_label() for line in figure.axes[0].lines] == ["Simulation 1", "Simulation 2"]
+    assert len(figures) == 2
+    assert len(figures[0].axes[0].lines) == 2
+    assert [line.get_label() for line in figures[0].axes[0].lines] == [
+        "Simulation 1",
+        "Simulation 2",
+    ]
+    np.testing.assert_allclose(figures[1].axes[0].lines[0].get_ydata(), [1.5, 2.5])
+    assert len(figures[1].axes[0].collections) == 1
+    assert figures[1].axes[0].get_title() == "Average RDF Li-O"
+
+
+def test_plot_rdf_running_average_smooths_each_selected_curve():
+    """Add point-window running averages only to the selected-simulations plot."""
+
+    results = [
+        RDFResult(
+            simulation_index=1,
+            r=np.array([0.5, 1.5, 2.5]),
+            g_r=np.array([1.0, 3.0, 5.0]),
+            timesteps=[0],
+        )
+    ]
+
+    figures = plot_rdf(
+        results,
+        "Li",
+        "O",
+        running_average_points=2,
+        legend_location="center left",
+    )
+
+    selected_axis = figures[0].axes[0]
+    assert [line.get_label() for line in selected_axis.lines] == [
+        "Simulation 1",
+        "Simulation 1 Avg",
+    ]
+    np.testing.assert_allclose(selected_axis.lines[1].get_ydata(), [1.0, 2.0, 4.0])
+    assert selected_axis.lines[1].get_linestyle() == "--"
+    assert selected_axis.get_legend()._loc == 6
+    assert len(figures[1].axes[0].lines) == 1
+    assert figures[1].axes[0].get_legend()._loc == 6
+
+
+def test_plot_rdf_average_uses_only_shared_radius_values():
+    """Avoid extrapolating shorter RDF curves during cross-simulation averaging."""
+
+    results = [
+        RDFResult(
+            simulation_index=1,
+            r=np.array([0.5, 1.5, 2.5]),
+            g_r=np.array([1.0, 2.0, 3.0]),
+            timesteps=[0],
+        ),
+        RDFResult(
+            simulation_index=2,
+            r=np.array([0.5, 1.5]),
+            g_r=np.array([3.0, 4.0]),
+            timesteps=[0],
+        ),
+    ]
+
+    figures = plot_rdf(results, "Li", "O")
+
+    average_line = figures[1].axes[0].lines[0]
+    np.testing.assert_allclose(average_line.get_xdata(), [0.5, 1.5])
+    np.testing.assert_allclose(average_line.get_ydata(), [2.0, 3.0])
 
 
 def test_plot_rdf_adds_reference_lines():
@@ -245,9 +456,10 @@ def test_plot_rdf_adds_reference_lines():
         RDFResult(simulation_index=1, r=np.array([0.5, 1.5]), g_r=np.array([1.0, 2.0]), timesteps=[0]),
     ]
 
-    figure = plot_rdf(results, "Li", "O", reference_lines=([1.0], [1.5]))
+    figures = plot_rdf(results, "Li", "O", reference_lines=([1.0], [1.5]))
 
-    assert len(figure.axes[0].lines) == 3
+    assert len(figures[0].axes[0].lines) == 3
+    assert len(figures[1].axes[0].lines) == 3
 
 
 def test_plot_rdf_applies_bright_theme_and_gradient_colors():
@@ -259,7 +471,7 @@ def test_plot_rdf_applies_bright_theme_and_gradient_colors():
         RDFResult(simulation_index=3, r=np.array([0.5, 1.5]), g_r=np.array([3.0, 4.0]), timesteps=[0]),
     ]
 
-    figure = plot_rdf(
+    figures = plot_rdf(
         results,
         "Li",
         "O",
@@ -267,6 +479,11 @@ def test_plot_rdf_applies_bright_theme_and_gradient_colors():
         gradient_colors=("#f9c74f", "#7209b7"),
     )
 
-    assert figure.get_facecolor() == (0.9725490196078431, 0.9803921568627451, 0.9882352941176471, 1.0)
-    assert [line.get_color() for line in figure.axes[0].lines] == ["#f9c74f", "#b66883", "#7209b7"]
-    assert figure.axes[0].get_facecolor() == (1.0, 1.0, 1.0, 1.0)
+    assert figures[0].get_facecolor() == (0.9725490196078431, 0.9803921568627451, 0.9882352941176471, 1.0)
+    assert [line.get_color() for line in figures[0].axes[0].lines] == [
+        "#f9c74f",
+        "#b66883",
+        "#7209b7",
+    ]
+    assert figures[0].axes[0].get_facecolor() == (1.0, 1.0, 1.0, 1.0)
+    assert figures[1].axes[0].get_facecolor() == (1.0, 1.0, 1.0, 1.0)

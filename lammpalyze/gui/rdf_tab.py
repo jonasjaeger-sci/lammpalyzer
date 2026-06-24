@@ -5,11 +5,13 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
 from lammpalyze.analysis import LoadedSimulation
-from lammpalyze.gui.helpers import parse_reference_lines
+from lammpalyze.gui.helpers import LEGEND_PLACEMENTS, parse_reference_lines
 from lammpalyze.parsers import list_lammpstrj_timesteps
-from lammpalyze.plotting import plot_rdf
 from lammpalyze.rdf import compute_rdf
+from lammpalyze.rdf_plotting import plot_rdf
 
 
 class RdfTabMixin:
@@ -18,11 +20,59 @@ class RdfTabMixin:
     def _build_rdf_tab(self, parent: ttk.Frame) -> None:
         """Create controls and output area for RDF plotting."""
 
-        controls = ttk.Frame(parent)
-        controls.pack(side="left", fill="y", padx=8, pady=8)
-        plot_area = ttk.Frame(parent)
-        plot_area.pack(side="right", fill="both", expand=True, padx=8, pady=8)
-        self._rdf_plot_area = plot_area
+        controls_container = ttk.Frame(parent)
+        controls_container.pack(side="left", fill="y", padx=8, pady=8)
+        controls_canvas = tk.Canvas(controls_container, highlightthickness=0, width=275)
+        controls_scrollbar = ttk.Scrollbar(
+            controls_container,
+            orient="vertical",
+            command=controls_canvas.yview,
+        )
+        controls = ttk.Frame(controls_canvas)
+        controls_window = controls_canvas.create_window((0, 0), window=controls, anchor="nw")
+        controls_canvas.configure(yscrollcommand=controls_scrollbar.set)
+        controls.bind(
+            "<Configure>",
+            lambda _event: controls_canvas.configure(scrollregion=controls_canvas.bbox("all")),
+        )
+        controls_canvas.bind(
+            "<Configure>",
+            lambda event: controls_canvas.itemconfigure(controls_window, width=event.width),
+        )
+        controls_canvas.pack(side="left", fill="y", expand=True)
+        controls_scrollbar.pack(side="right", fill="y")
+
+        plot_container = ttk.Frame(parent)
+        plot_container.pack(side="right", fill="both", expand=True, padx=8, pady=8)
+        self._rdf_scroll_canvas = tk.Canvas(
+            plot_container,
+            highlightthickness=0,
+            background="#0b1020",
+        )
+        plot_scrollbar = ttk.Scrollbar(
+            plot_container,
+            orient="vertical",
+            command=self._rdf_scroll_canvas.yview,
+        )
+        self._rdf_plot_area = ttk.Frame(self._rdf_scroll_canvas)
+        plot_window = self._rdf_scroll_canvas.create_window(
+            (0, 0),
+            window=self._rdf_plot_area,
+            anchor="nw",
+        )
+        self._rdf_scroll_canvas.configure(yscrollcommand=plot_scrollbar.set)
+        self._rdf_plot_area.bind(
+            "<Configure>",
+            lambda _event: self._rdf_scroll_canvas.configure(
+                scrollregion=self._rdf_scroll_canvas.bbox("all")
+            ),
+        )
+        self._rdf_scroll_canvas.bind(
+            "<Configure>",
+            lambda event: self._rdf_scroll_canvas.itemconfigure(plot_window, width=event.width),
+        )
+        self._rdf_scroll_canvas.pack(side="left", fill="both", expand=True)
+        plot_scrollbar.pack(side="right", fill="y")
 
         ttk.Label(controls, text="Simulations").pack(anchor="w")
         self.rdf_sim_list = tk.Listbox(controls, selectmode="multiple", exportselection=False, height=6)
@@ -67,12 +117,36 @@ class RdfTabMixin:
         ttk.Label(controls, text="Bin width").pack(anchor="w")
         ttk.Entry(controls, textvariable=self.rdf_bin_width).pack(fill="x", pady=(0, 12))
 
+        self.rdf_running_average_enabled = tk.BooleanVar(value=False)
+        self.rdf_running_average_points = tk.StringVar(value="10")
+        ttk.Checkbutton(
+            controls,
+            text="Show running average",
+            variable=self.rdf_running_average_enabled,
+        ).pack(anchor="w", pady=(0, 4))
+        ttk.Label(controls, text="Average points").pack(anchor="w")
+        ttk.Spinbox(
+            controls,
+            from_=1,
+            to=1000000,
+            textvariable=self.rdf_running_average_points,
+        ).pack(fill="x", pady=(0, 12))
+
         self.rdf_theme = tk.StringVar(value="Dark")
         ttk.Label(controls, text="Background").pack(anchor="w")
         ttk.Combobox(
             controls,
             textvariable=self.rdf_theme,
             values=["Dark", "Bright"],
+            state="readonly",
+        ).pack(fill="x", pady=(0, 12))
+
+        self.rdf_legend_location = tk.StringVar(value="Best")
+        ttk.Label(controls, text="Legend placement").pack(anchor="w")
+        ttk.Combobox(
+            controls,
+            textvariable=self.rdf_legend_location,
+            values=LEGEND_PLACEMENTS,
             state="readonly",
         ).pack(fill="x", pady=(0, 12))
 
@@ -99,7 +173,7 @@ class RdfTabMixin:
         ttk.Button(controls, text="Plot", command=self._plot_rdf).pack(fill="x")
         ttk.Button(controls, text="Export PNG", command=self._save_rdf_plot).pack(fill="x", pady=(8, 0))
 
-        self.rdf_status = ttk.Label(plot_area, text="", wraplength=620, justify="left")
+        self.rdf_status = ttk.Label(self._rdf_plot_area, text="", wraplength=620, justify="left")
         self.rdf_status.pack(anchor="nw", padx=8, pady=8)
         self._set_rdf_last_timesteps()
 
@@ -119,15 +193,28 @@ class RdfTabMixin:
             bin_width = float(self.rdf_bin_width.get())
 
             results = compute_rdf(simulations, element_a, element_b, (start, end), bin_width)
-            figure = plot_rdf(
+            figures = plot_rdf(
                 results,
                 element_a,
                 element_b,
                 reference_lines=self._rdf_reference_lines(),
+                running_average_points=self._rdf_running_average_points(),
+                legend_location=self.rdf_legend_location.get(),
                 theme=self.rdf_theme.get(),
                 gradient_colors=self._rdf_gradient_colors(),
             )
-            self._replace_canvas("_rdf_canvas", self._rdf_plot_area, figure)
+            for canvas in self._rdf_canvases:
+                self._destroy_canvas(canvas)
+            self._rdf_canvases = []
+            for figure in figures:
+                canvas = FigureCanvasTkAgg(figure, master=self._rdf_plot_area)
+                canvas.draw()
+                canvas.get_tk_widget().pack(fill="x", expand=False, pady=(0, 12))
+                self._rdf_canvases.append(canvas)
+            self._rdf_scroll_canvas.configure(
+                background="#f8fafc" if self.rdf_theme.get() == "Bright" else "#0b1020"
+            )
+            self._rdf_scroll_canvas.yview_moveto(0)
             used_timesteps = sorted({timestep for result in results for timestep in result.timesteps})
             self.rdf_status.configure(
                 text=(
@@ -141,7 +228,12 @@ class RdfTabMixin:
     def _save_rdf_plot(self) -> None:
         """Save the current RDF plot to an image file."""
 
-        self._export_canvas_figure_png(self._rdf_canvas, "Export RDF plot", "radial_distribution.png")
+        self._export_canvas_figures_png(
+            self._rdf_canvases,
+            "Export RDF plots",
+            "radial_distribution.png",
+            ["selected_simulations", "average"],
+        )
 
     def _selected_rdf_simulations(self):
         """Return trajectory-capable simulations selected in the RDF listbox."""
@@ -155,6 +247,16 @@ class RdfTabMixin:
             parse_reference_lines(self.rdf_vertical_lines.get()),
             parse_reference_lines(self.rdf_horizontal_lines.get()),
         )
+
+    def _rdf_running_average_points(self) -> int | None:
+        """Return the optional point window for smoothing selected RDF curves."""
+
+        if not self.rdf_running_average_enabled.get():
+            return None
+        points = int(self.rdf_running_average_points.get())
+        if points < 1:
+            raise ValueError("RDF running-average points must be at least 1.")
+        return points
 
     def _rdf_gradient_colors(self) -> tuple[str, str] | None:
         """Return the optional RDF line-color gradient."""

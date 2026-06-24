@@ -16,6 +16,8 @@ def test_parse_input_file_groups_simulations(tmp_path: Path):
         "species_R1.out",
         "thermo_R1.log",
         "traj_R1.lammpstrj",
+        "pairs_R1.dump",
+        "msd_R1.dat",
         "species_R2.out",
     ]:
         (tmp_path / name).write_text("", encoding="utf-8")
@@ -28,6 +30,8 @@ def test_parse_input_file_groups_simulations(tmp_path: Path):
         SF1 = species_R1.out
         ThermoF1 = thermo_R1.log
         TrajF1 = traj_R1.lammpstrj
+        Dump1 = pairs_R1.dump
+        MSD1 = msd_R1.dat
         SF2 = species_R2.out
         """,
         encoding="utf-8",
@@ -38,6 +42,8 @@ def test_parse_input_file_groups_simulations(tmp_path: Path):
     assert config.element_list == ["C", "H"]
     assert [simulation.index for simulation in config.simulations] == [1, 2]
     assert config.simulations[0].bond == tmp_path / "bonds_R1.reax"
+    assert config.simulations[0].pairwise == tmp_path / "pairs_R1.dump"
+    assert config.simulations[0].msd == tmp_path / "msd_R1.dat"
     assert config.simulations[1].species == tmp_path / "species_R2.out"
 
 

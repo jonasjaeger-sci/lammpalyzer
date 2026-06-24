@@ -14,6 +14,8 @@ TOPIC_PREFIXES = {
     "species": ("SF", "SpeciesF", "SpeciesFile"),
     "thermo": ("ThermoF", "TF", "ThermoFile"),
     "trajectory": ("TrajF", "TrajectoryF", "TrajectoryFile"),
+    "pairwise": ("Dump", "DumpF", "PairF", "PairwiseF", "PairwiseFile"),
+    "msd": ("MSD", "MSDF", "MSDFile"),
 }
 DEFAULT_BOND_ORDER_CUTOFF = 0.3
 DEFAULT_BOND_STATE_PERSISTENCE_FRAMES = 1
@@ -37,6 +39,8 @@ class SimulationFiles:
     species: Path | None = None
     thermo: Path | None = None
     trajectory: Path | None = None
+    pairwise: Path | None = None
+    msd: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -121,7 +125,7 @@ def parse_input_file(input_file: str | Path) -> LammpalyzeConfig:
     if not indexes:
         raise ValueError(
             "No simulation output files were found. Expected keys such as BF1, SF1, "
-            "ThermoF1, or TrajF1."
+            "ThermoF1, TrajF1, Dump1, or MSD1."
         )
 
     simulations = [
@@ -131,6 +135,8 @@ def parse_input_file(input_file: str | Path) -> LammpalyzeConfig:
             species=grouped["species"].get(idx),
             thermo=grouped["thermo"].get(idx),
             trajectory=grouped["trajectory"].get(idx),
+            pairwise=grouped["pairwise"].get(idx),
+            msd=grouped["msd"].get(idx),
         )
         for idx in indexes
     ]
@@ -348,7 +354,7 @@ def _parse_element_list(assignments: dict[str, str]) -> list[str]:
 
 
 def _group_paths(assignments: dict[str, str], base_dir: Path) -> dict[str, dict[int, Path]]:
-    """Sort path assignments into bond/species/thermo/trajectory buckets."""
+    """Sort configured file assignments into their output-data buckets."""
 
     grouped: dict[str, dict[int, Path]] = {topic: {} for topic in TOPIC_PREFIXES}
 

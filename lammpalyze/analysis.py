@@ -14,6 +14,8 @@ from lammpalyze.config import LammpalyzeConfig
 from lammpalyze.parsers import (
     ChargeStatistics,
     ComponentProperties,
+    eval_msd,
+    eval_pairwise_dump,
     eval_species,
     eval_thermo,
     parse_bond_observations,
@@ -40,6 +42,8 @@ class LoadedSimulation:
     species: list[str] | None = None
     species_df: pd.DataFrame | None = None
     thermo_df: pd.DataFrame | None = None
+    pairwise_df: pd.DataFrame | None = None
+    msd_df: pd.DataFrame | None = None
     atom_evolution: dict[str, list[str]] | None = None
     smiles: dict[int, list[str]] | None = None
     smiles_id: dict[int, list[list[str]]] | None = None
@@ -175,6 +179,12 @@ def load_project(
 
         if files.thermo is not None:
             _, loaded.thermo_df = eval_thermo(files.thermo)
+
+        if files.pairwise is not None:
+            loaded.pairwise_df = eval_pairwise_dump(files.pairwise)
+
+        if files.msd is not None:
+            loaded.msd_df = eval_msd(files.msd)
 
         if files.bond is not None:
             bond_result = parse_bond_observations(

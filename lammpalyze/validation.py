@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from lammpalyze.config import LammpalyzeConfig, parse_input_file
+from lammpalyze.config import TOPIC_PREFIXES, LammpalyzeConfig, parse_input_file
 
 TRAJECTORY_COORDINATE_GROUPS = (
     ("xu", "yu", "zu"),
@@ -97,7 +97,7 @@ def _check_missing_files(config: LammpalyzeConfig, issues: list[ValidationIssue]
     """Report every referenced file that does not exist."""
 
     for simulation in config.simulations:
-        for topic in ("bond", "species", "thermo", "trajectory"):
+        for topic in TOPIC_PREFIXES:
             value = getattr(simulation, topic)
             if value is not None and not value.exists():
                 issues.append(
@@ -114,7 +114,7 @@ def _check_simulation_index_consistency(config: LammpalyzeConfig, issues: list[V
     expected_topics = {
         topic
         for simulation in config.simulations
-        for topic in ("bond", "species", "thermo", "trajectory")
+        for topic in TOPIC_PREFIXES
         if getattr(simulation, topic) is not None
     }
     if len(config.simulations) <= 1 or len(expected_topics) <= 1:
@@ -123,7 +123,7 @@ def _check_simulation_index_consistency(config: LammpalyzeConfig, issues: list[V
     for simulation in config.simulations:
         present = {
             topic
-            for topic in ("bond", "species", "thermo", "trajectory")
+            for topic in TOPIC_PREFIXES
             if getattr(simulation, topic) is not None
         }
         missing = sorted(expected_topics - present)

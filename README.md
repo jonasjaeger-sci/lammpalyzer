@@ -72,10 +72,18 @@ ThermoF2 = main_thermo_R2.log
 # Trajectory files
 TrajF1 = md.lammpstrj_R1
 TrajF2 = md.lammpstrj_R2
+
+# Pairwise local dumps
+Dump1 = pair_distances_R1.dat
+Dump2 = pair_distances_R2.dat
+
+# Mean-square-displacement data
+MSD1 = msd_R1.dat
+MSD2 = msd_R2.dat
 ```
 
 The number at the end of each key groups files into simulations. For example,
-`BF1`, `SF1`, `ThermoF1`, and `TrajF1` belong to simulation 1.
+`BF1`, `SF1`, `ThermoF1`, `TrajF1`, `Dump1`, and `MSD1` belong to simulation 1.
 
 `element_list` maps LAMMPS atom types to element symbols. In the example above,
 atom type 1 is `C`, type 2 is `H`, type 3 is `Li`, and type 4 is `O`.
@@ -228,9 +236,27 @@ a population-standard-deviation band, error bars, or no uncertainty display.
 Partial charges remain continuous ReaxFF values and are not rounded into formal
 SMILES charges.
 
+The `Pairwise data` tab reads LAMMPS local dumps whose `ITEM: ENTRIES` table
+contains a local index, two particle IDs, and one or more numeric data columns.
+The local index is discarded, reversed particle-ID orders are combined into one
+stable `low-high` pair label, and the data column and particle pairs can be
+selected independently, with buttons to select or deselect all pairs. An
+optional atom selector adds the molecule containing that atom on a second
+y-axis. Molecules are assigned stable integer values in first-observation order,
+while the tick labels show either their chemical formulas or SMILES notation.
+The pairwise legend placement is configurable.
+
+The `Mean-square displacement` tab reads computed tables with a `TimeStep`
+header followed by numeric data columns. Every file/column combination appears
+in its scrollable selector, for example `MSD1 - c_msd_C[1]`, with select-all and
+deselect-all buttons. As in the thermodynamic-data tab, it creates a
+selected-series plot and a second aligned mean/standard-deviation plot. Optional
+semicolon-separated simulation groups such as `1,2; 3,4` produce separately
+labelled averages. Both legends share a configurable placement.
+
 File entries use a short prefix plus an optional simulation number. For example,
-`BF1`, `SF1`, `ThermoF1`, and `TrajF1` are grouped as simulation 1; `BF2`,
-`SF2`, `ThermoF2`, and `TrajF2` are grouped as simulation 2. If no number is
+`BF1`, `SF1`, `ThermoF1`, `TrajF1`, `Dump1`, and `MSD1` are grouped as
+simulation 1; keys ending in `2` are grouped as simulation 2. If no number is
 given, lammpalyze treats the entry as simulation 1.
 
 Use these prefixes:
@@ -240,6 +266,8 @@ BF, BondF, BondFile                  -> ReaxFF bond file
 SF, SpeciesF, SpeciesFile            -> species file
 ThermoF, TF, ThermoFile              -> thermodynamic log file
 TrajF, TrajectoryF, TrajectoryFile   -> trajectory file
+Dump, DumpF, PairF, PairwiseF, PairwiseFile -> pairwise local-dump file
+MSD, MSDF, MSDFile                   -> computed mean-square-displacement file
 ```
 
 Unknown assignments are ignored. Repeated keys overwrite earlier values.
@@ -289,7 +317,10 @@ The GUI contains tabs for common analysis tasks:
 - `Thermodynamic data`: plot selected thermodynamic parameters, choose
   simulations, edit legend labels, and adjust x/y axis ranges.
 - `Radial distribution`: calculate RDF curves for selected element pairs such as
-  `Li-Li` or `Li-O`, with selectable simulations, timestep range, and bin width.
+  `Li-Li` or `Li-O`, with selectable simulations, timestep range, bin width,
+  optional point-based running averages, and a second cross-simulation mean and
+  standard-deviation plot over the shared radial range. A dropdown controls the
+  legend placement in both plots.
 - `Atomic charges`: plot per-element mean ReaxFF partial charges over time with
   population-standard-deviation bands or error bars, selecting simulations,
   elements, uncertainty style, timestep range, and plot background.
@@ -377,10 +408,12 @@ lammpalyze/
   analysis.py     project loading and shared numerical helpers
   reactions.py    reaction path counting and occurrence lookup
   rdf.py          radial distribution function calculations
+  rdf_plotting.py radial distribution plotting and cross-simulation averaging
   plotting.py     Matplotlib plotting helpers
-  parsers/        species, thermo, bond, and trajectory readers
+  parsers/        species, thermo, computed-data, bond, and trajectory readers
   gui/            Tkinter GUI tabs and application shell
     charge_tab.py atomic partial-charge plotting tab
+    computed_tabs.py pairwise-data and mean-square-displacement tabs
   smiles.py       SMILES utilities and molecule rendering
   ovito.py        OVITO scene generation
 examples/

@@ -6,6 +6,8 @@ import pytest
 
 from lammpalyze.parsers import (
     copy_lammpstrj_until,
+    eval_msd,
+    eval_pairwise_dump,
     eval_species,
     eval_thermo,
     iter_lammpstrj_frames,
@@ -57,6 +59,71 @@ def test_eval_thermo_extracts_table(tmp_path: Path):
 
     assert frame["Step"].tolist() == [0.0, 1.0]
     assert frame["Temp"].tolist() == [300.0, 301.0]
+
+
+def test_eval_msd_preserves_computed_column_names(tmp_path: Path):
+    """Read fix-averaged MSD output with every computed component selectable."""
+
+    msd_file = tmp_path / "msd.dat"
+    msd_file.write_text(
+        """# Time-averaged data for fix msdout
+# TimeStep c_msd_C[1] c_msd_C[4] c_msd_Li[4]
+0 0 0 0
+100 0.1 0.4 1.2
+""",
+        encoding="utf-8",
+    )
+
+    frame = eval_msd(msd_file)
+
+    assert frame.columns.tolist() == ["Timestep", "c_msd_C[1]", "c_msd_C[4]", "c_msd_Li[4]"]
+    assert frame["Timestep"].tolist() == [0.0, 100.0]
+    assert frame["c_msd_Li[4]"].tolist() == [0.0, 1.2]
+
+
+def test_eval_pairwise_dump_fuses_particle_ids_and_exposes_data_columns(tmp_path: Path):
+    """Discard local indexes and keep stable pair labels across reversed ID order."""
+
+    pairwise_file = tmp_path / "pairs.dump"
+    pairwise_file.write_text(
+        """ITEM: TIMESTEP
+0
+ITEM: NUMBER OF ENTRIES
+2
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ENTRIES index c_pid[1] c_pid[2] c_pdist c_energy
+1 654 653 3.5 -0.2
+2 651 652 1.4 -0.5
+ITEM: TIMESTEP
+100
+ITEM: NUMBER OF ENTRIES
+1
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ENTRIES index c_pid[1] c_pid[2] c_pdist c_energy
+1 653 654 3.6 -0.1
+""",
+        encoding="utf-8",
+    )
+
+    frame = eval_pairwise_dump(pairwise_file)
+
+    assert frame.columns.tolist() == [
+        "Timestep",
+        "Pair",
+        "Particle 1",
+        "Particle 2",
+        "c_pdist",
+        "c_energy",
+    ]
+    assert frame["Pair"].tolist() == ["653-654", "651-652", "653-654"]
+    assert frame["Particle 1"].tolist() == [653, 651, 653]
+    assert frame["c_energy"].tolist() == [-0.2, -0.5, -0.1]
 
 
 def test_iter_lammpstrj_frames_filters_inclusive_timestep_range(tmp_path: Path):

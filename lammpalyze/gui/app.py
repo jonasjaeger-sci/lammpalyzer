@@ -11,6 +11,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from lammpalyze.analysis import LammpalyzeProject
 from lammpalyze.gui.canvas import CanvasMixin
 from lammpalyze.gui.charge_tab import ChargeTabMixin
+from lammpalyze.gui.computed_tabs import ComputedDataTabMixin
 from lammpalyze.gui.molecule_tab import MoleculeTabMixin
 from lammpalyze.gui.rdf_tab import RdfTabMixin
 from lammpalyze.gui.reactions_tab import ReactionTabMixin
@@ -18,16 +19,19 @@ from lammpalyze.gui.species_tab import SpeciesTabMixin
 from lammpalyze.gui.thermo_tab import ThermoTabMixin
 
 
+# Tkinter tabs are intentionally separated into focused mixins.
+# pylint: disable=too-many-ancestors
 class LammpalyzeGUI(
     SpeciesTabMixin,
     ThermoTabMixin,
+    ComputedDataTabMixin,
     ChargeTabMixin,
     RdfTabMixin,
     MoleculeTabMixin,
     ReactionTabMixin,
     CanvasMixin,
 ):
-    """GUI for species, thermo, SMILES, and reaction visualization."""
+    """GUI for simulation outputs, molecular structures, and reactions."""
 
     def __init__(self, project: LammpalyzeProject) -> None:
         """Create the main window and initialize project-backed GUI state."""
@@ -43,8 +47,10 @@ class LammpalyzeGUI(
         self.root.geometry("1100x760")
         self._species_canvases: list[FigureCanvasTkAgg] = []
         self._thermo_canvases: list[FigureCanvasTkAgg] = []
-        self._rdf_canvas: FigureCanvasTkAgg | None = None
+        self._rdf_canvases: list[FigureCanvasTkAgg] = []
         self._charge_canvas: FigureCanvasTkAgg | None = None
+        self._pairwise_canvas: FigureCanvasTkAgg | None = None
+        self._msd_canvases: list[FigureCanvasTkAgg] = []
         self._rdf_timesteps_by_simulation: dict[int, list[int]] = {}
         self._molecule_photo = None
         self._molecule_smiles: str | None = None
@@ -82,6 +88,8 @@ class LammpalyzeGUI(
 
         species_tab = ttk.Frame(tabs)
         thermo_tab = ttk.Frame(tabs)
+        pairwise_tab = ttk.Frame(tabs)
+        msd_tab = ttk.Frame(tabs)
         rdf_tab = ttk.Frame(tabs)
         charge_tab = ttk.Frame(tabs)
         smiles_tab = ttk.Frame(tabs)
@@ -90,6 +98,8 @@ class LammpalyzeGUI(
         reaction_tab = ttk.Frame(tabs)
         tabs.add(species_tab, text="Species analysis")
         tabs.add(thermo_tab, text="Thermodynamic data")
+        tabs.add(pairwise_tab, text="Pairwise data")
+        tabs.add(msd_tab, text="Mean-square displacement")
         tabs.add(rdf_tab, text="Radial distribution")
         tabs.add(charge_tab, text="Atomic charges")
         tabs.add(smiles_tab, text="Molecule visualization")
@@ -99,6 +109,8 @@ class LammpalyzeGUI(
 
         self._build_species_tab(species_tab)
         self._build_thermo_tab(thermo_tab)
+        self._build_pairwise_tab(pairwise_tab)
+        self._build_msd_tab(msd_tab)
         self._build_rdf_tab(rdf_tab)
         self._build_charge_tab(charge_tab)
         self._build_smiles_tab(smiles_tab)
@@ -117,13 +129,21 @@ class LammpalyzeGUI(
             self._destroy_canvas(canvas)
         self._species_canvases = []
 
-        if self._rdf_canvas is not None:
-            self._destroy_canvas(self._rdf_canvas)
-            self._rdf_canvas = None
+        for canvas in self._rdf_canvases:
+            self._destroy_canvas(canvas)
+        self._rdf_canvases = []
 
         if self._charge_canvas is not None:
             self._destroy_canvas(self._charge_canvas)
             self._charge_canvas = None
+
+        if self._pairwise_canvas is not None:
+            self._destroy_canvas(self._pairwise_canvas)
+            self._pairwise_canvas = None
+
+        for canvas in self._msd_canvases:
+            self._destroy_canvas(canvas)
+        self._msd_canvases = []
 
         for canvas in self._thermo_canvases:
             self._destroy_canvas(canvas)
