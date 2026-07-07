@@ -246,6 +246,17 @@ y-axis. Molecules are assigned stable integer values in first-observation order,
 while the tick labels show either their chemical formulas or SMILES notation.
 The pairwise legend placement is configurable.
 
+The `Distances and angles` tab calculates geometry directly from configured
+trajectory files. Choose `Distance` or `Angle`, select one or more simulations,
+and enter either one atom ID per field or equally sized lists such as `[1, 4]`
+and `[2, 5]`. List elements at the same position form one measurement. Angles
+use the second atom as the vertex (`atom 1 - atom 2 - atom 3`). Distances and
+angle arms use periodic minimum-image displacements, and the resulting values
+are plotted against trajectory timestep in Å or degrees.
+
+All embedded line plots show the nearest series label and its x/y coordinates
+when the mouse pointer is close to a plotted data point.
+
 The `Mean-square displacement` tab reads computed tables with a `TimeStep`
 header followed by numeric data columns. Every file/column combination appears
 in its scrollable selector, for example `MSD1 - c_msd_C[1]`, with select-all and
@@ -409,11 +420,14 @@ lammpalyze/
   reactions.py    reaction path counting and occurrence lookup
   rdf.py          radial distribution function calculations
   rdf_plotting.py radial distribution plotting and cross-simulation averaging
+  geometry.py     trajectory pair-distance and three-atom-angle calculations
+  geometry_plotting.py distance-and-angle plotting
   plotting.py     Matplotlib plotting helpers
   parsers/        species, thermo, computed-data, bond, and trajectory readers
   gui/            Tkinter GUI tabs and application shell
     charge_tab.py atomic partial-charge plotting tab
     computed_tabs.py pairwise-data and mean-square-displacement tabs
+    geometry_tab.py trajectory distance-and-angle tab
   smiles.py       SMILES utilities and molecule rendering
   ovito.py        OVITO scene generation
 examples/

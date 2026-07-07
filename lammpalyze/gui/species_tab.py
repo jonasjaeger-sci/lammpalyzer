@@ -5,8 +5,6 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
 from lammpalyze.gui.helpers import parse_reference_lines, parse_timestep_values
 from lammpalyze.plotting import plot_species
 
@@ -173,8 +171,7 @@ class SpeciesTabMixin:
                 theme=self.species_theme.get(),
             )
             for figure in figures:
-                canvas = FigureCanvasTkAgg(figure, master=self._species_plot_area)
-                canvas.draw()
+                canvas = self._create_figure_canvas(figure, self._species_plot_area)
                 canvas.get_tk_widget().pack(fill="x", expand=False, pady=(0, 12))
                 self._species_canvases.append(canvas)
             self._species_scroll_canvas.yview_moveto(0)

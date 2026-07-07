@@ -5,8 +5,6 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.gui.helpers import LEGEND_PLACEMENTS, parse_reference_lines
 from lammpalyze.parsers import list_lammpstrj_timesteps
@@ -207,8 +205,7 @@ class RdfTabMixin:
                 self._destroy_canvas(canvas)
             self._rdf_canvases = []
             for figure in figures:
-                canvas = FigureCanvasTkAgg(figure, master=self._rdf_plot_area)
-                canvas.draw()
+                canvas = self._create_figure_canvas(figure, self._rdf_plot_area)
                 canvas.get_tk_widget().pack(fill="x", expand=False, pady=(0, 12))
                 self._rdf_canvases.append(canvas)
             self._rdf_scroll_canvas.configure(

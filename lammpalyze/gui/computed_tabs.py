@@ -5,8 +5,6 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
 from lammpalyze.gui.helpers import LEGEND_PLACEMENTS, parse_reference_lines, parse_simulation_groups
 from lammpalyze.parsers import msd_data_columns, pairwise_data_columns
 from lammpalyze.plotting import plot_msd, plot_pairwise
@@ -344,8 +342,7 @@ class ComputedDataTabMixin:
                 self._destroy_canvas(canvas)
             self._msd_canvases = []
             for figure in figures:
-                canvas = FigureCanvasTkAgg(figure, master=self._msd_plot_area)
-                canvas.draw()
+                canvas = self._create_figure_canvas(figure, self._msd_plot_area)
                 canvas.get_tk_widget().pack(fill="x", expand=False, pady=(0, 12))
                 self._msd_canvases.append(canvas)
             self._msd_scroll_canvas.yview_moveto(0)

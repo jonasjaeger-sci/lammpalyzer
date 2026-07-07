@@ -1,5 +1,7 @@
 """Tests for GUI data helpers."""
 
+import matplotlib.pyplot as plt
+
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.gui import (
     connected_reaction_pathway_data,
@@ -16,6 +18,7 @@ from lammpalyze.gui.helpers import (
     parse_timestep_values,
     suffixed_image_output_path,
 )
+from lammpalyze.gui.canvas import _format_hover_value, _nearest_line_point
 from lammpalyze.parsers import ComponentProperties
 from lammpalyze.reactions import ReactionPath
 
@@ -148,3 +151,21 @@ def test_molecule_observation_summary_reports_charge_ions_and_flags():
     assert "charge mean +0.700 e" in summary
     assert "cation candidate: 2" in summary
     assert "Suspicious observations: 1" in summary
+
+
+def test_nearest_line_point_finds_labelled_data_in_display_coordinates():
+    """Find a plotted point near the mouse while ignoring reference lines."""
+
+    figure, axis = plt.subplots()
+    line = axis.plot([10, 20], [1.5, 3.5], label="Simulation 1")[0]
+    axis.axvline(20)
+    figure.canvas.draw()
+    x_pixel, y_pixel = line.get_transform().transform((20, 3.5))
+
+    nearest = _nearest_line_point(figure, x_pixel + 2, y_pixel - 2)
+
+    assert nearest is not None
+    assert nearest[0] is line
+    assert nearest[1:] == (1, 20.0, 3.5)
+    assert _format_hover_value(1.23456789) == "1.234568"
+    plt.close(figure)

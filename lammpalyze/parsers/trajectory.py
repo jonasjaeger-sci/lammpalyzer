@@ -164,7 +164,7 @@ def iter_lammpstrj_frames(
                     continue
 
             atoms = [
-                _trajectory_atom_from_values(columns, handle.readline().split())
+                _trajectory_atom_from_values(columns, handle.readline().split(), bounds)
                 for _ in range(n_atoms)
             ]
             yield TrajectoryFrame(timestep=timestep, bounds=bounds, atoms=atoms)
@@ -201,7 +201,7 @@ def read_lammpstrj_frame(filename: str | Path, target_timestep: int) -> Trajecto
             for _ in range(n_atoms):
                 values = handle.readline().split()
                 if timestep == target_timestep:
-                    atoms.append(_trajectory_atom_from_values(columns, values))
+                    atoms.append(_trajectory_atom_from_values(columns, values, bounds))
 
             if timestep == target_timestep:
                 return TrajectoryFrame(timestep=timestep, bounds=bounds, atoms=atoms)
@@ -209,19 +209,32 @@ def read_lammpstrj_frame(filename: str | Path, target_timestep: int) -> Trajecto
     raise ValueError(f"Timestep {target_timestep} not found in trajectory file {filename}")
 
 
-def _trajectory_atom_from_values(columns: list[str], values: list[str]) -> TrajectoryAtom:
+def _trajectory_atom_from_values(
+    columns: list[str],
+    values: list[str],
+    bounds: np.ndarray | None = None,
+) -> TrajectoryAtom:
     """Build a trajectory atom from one LAMMPS atom-table row."""
 
     column_index = {column: index for index, column in enumerate(columns)}
     x_column = _first_available_column(column_index, ("xu", "x", "xs"))
     y_column = _first_available_column(column_index, ("yu", "y", "ys"))
     z_column = _first_available_column(column_index, ("zu", "z", "zs"))
+    coordinates = np.array(
+        [
+            float(values[column_index[x_column]]),
+            float(values[column_index[y_column]]),
+            float(values[column_index[z_column]]),
+        ]
+    )
+    if bounds is not None and (x_column, y_column, z_column) == ("xs", "ys", "zs"):
+        coordinates = bounds[:, 0] + coordinates * (bounds[:, 1] - bounds[:, 0])
     return TrajectoryAtom(
         atom_id=int(float(values[column_index["id"]])),
         atom_type=int(float(values[column_index.get("type", column_index["id"])])),
-        x=float(values[column_index[x_column]]),
-        y=float(values[column_index[y_column]]),
-        z=float(values[column_index[z_column]]),
+        x=float(coordinates[0]),
+        y=float(coordinates[1]),
+        z=float(coordinates[2]),
     )
 
 

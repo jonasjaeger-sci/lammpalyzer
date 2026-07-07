@@ -12,6 +12,7 @@ from lammpalyze.analysis import LammpalyzeProject
 from lammpalyze.gui.canvas import CanvasMixin
 from lammpalyze.gui.charge_tab import ChargeTabMixin
 from lammpalyze.gui.computed_tabs import ComputedDataTabMixin
+from lammpalyze.gui.geometry_tab import GeometryTabMixin
 from lammpalyze.gui.molecule_tab import MoleculeTabMixin
 from lammpalyze.gui.rdf_tab import RdfTabMixin
 from lammpalyze.gui.reactions_tab import ReactionTabMixin
@@ -25,6 +26,7 @@ class LammpalyzeGUI(
     SpeciesTabMixin,
     ThermoTabMixin,
     ComputedDataTabMixin,
+    GeometryTabMixin,
     ChargeTabMixin,
     RdfTabMixin,
     MoleculeTabMixin,
@@ -50,6 +52,7 @@ class LammpalyzeGUI(
         self._rdf_canvases: list[FigureCanvasTkAgg] = []
         self._charge_canvas: FigureCanvasTkAgg | None = None
         self._pairwise_canvas: FigureCanvasTkAgg | None = None
+        self._geometry_canvas: FigureCanvasTkAgg | None = None
         self._msd_canvases: list[FigureCanvasTkAgg] = []
         self._rdf_timesteps_by_simulation: dict[int, list[int]] = {}
         self._molecule_photo = None
@@ -89,6 +92,7 @@ class LammpalyzeGUI(
         species_tab = ttk.Frame(tabs)
         thermo_tab = ttk.Frame(tabs)
         pairwise_tab = ttk.Frame(tabs)
+        geometry_tab = ttk.Frame(tabs)
         msd_tab = ttk.Frame(tabs)
         rdf_tab = ttk.Frame(tabs)
         charge_tab = ttk.Frame(tabs)
@@ -99,6 +103,7 @@ class LammpalyzeGUI(
         tabs.add(species_tab, text="Species analysis")
         tabs.add(thermo_tab, text="Thermodynamic data")
         tabs.add(pairwise_tab, text="Pairwise data")
+        tabs.add(geometry_tab, text="Distances and angles")
         tabs.add(msd_tab, text="Mean-square displacement")
         tabs.add(rdf_tab, text="Radial distribution")
         tabs.add(charge_tab, text="Atomic charges")
@@ -110,6 +115,7 @@ class LammpalyzeGUI(
         self._build_species_tab(species_tab)
         self._build_thermo_tab(thermo_tab)
         self._build_pairwise_tab(pairwise_tab)
+        self._build_geometry_tab(geometry_tab)
         self._build_msd_tab(msd_tab)
         self._build_rdf_tab(rdf_tab)
         self._build_charge_tab(charge_tab)
@@ -140,6 +146,10 @@ class LammpalyzeGUI(
         if self._pairwise_canvas is not None:
             self._destroy_canvas(self._pairwise_canvas)
             self._pairwise_canvas = None
+
+        if self._geometry_canvas is not None:
+            self._destroy_canvas(self._geometry_canvas)
+            self._geometry_canvas = None
 
         for canvas in self._msd_canvases:
             self._destroy_canvas(canvas)

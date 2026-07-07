@@ -5,8 +5,6 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
 from lammpalyze.gui.helpers import THERMO_DEFAULTS, parse_reference_lines, parse_simulation_groups
 from lammpalyze.plotting import plot_thermo
 
@@ -259,8 +257,7 @@ class ThermoTabMixin:
                 gradient_colors=self._thermo_gradient_colors(),
             )
             for figure in figures:
-                canvas = FigureCanvasTkAgg(figure, master=self._thermo_plot_area)
-                canvas.draw()
+                canvas = self._create_figure_canvas(figure, self._thermo_plot_area)
                 canvas.get_tk_widget().pack(fill="x", expand=False, pady=(0, 12))
                 self._thermo_canvases.append(canvas)
             self._thermo_scroll_canvas.yview_moveto(0)
