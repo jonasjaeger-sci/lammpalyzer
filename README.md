@@ -171,8 +171,10 @@ changes. If frames are written every 100 timesteps, a candidate first seen at
 100 and retained at 200 satisfies `bond_state_persistence_frames = 2` at frame
 200. Adding `bond_state_persistence_timesteps = 500` delays acceptance until the
 first later sampled frame that is both the required consecutive observation and
-at least 500 timesteps after the candidate began. Accepted changes are therefore
-timestamped at the confirming frame, not backdated.
+at least 500 timesteps after the candidate began. Once accepted, changes are
+backdated to the first sampled frame where the candidate state appeared, so
+brief unresolved fluctuations still use the previous stable state while
+confirmed changes appear from their onset.
 
 Frame counts are convenient for fixed dump frequencies; elapsed timesteps remain
 meaningful when sampling intervals differ. Hysteresis applies to connectivity,
@@ -252,7 +254,10 @@ and enter either one atom ID per field or equally sized lists such as `[1, 4]`
 and `[2, 5]`. List elements at the same position form one measurement. Angles
 use the second atom as the vertex (`atom 1 - atom 2 - atom 3`). Distances and
 angle arms use periodic minimum-image displacements, and the resulting values
-are plotted against trajectory timestep in Å or degrees.
+are plotted against trajectory timestep in Å or degrees. Optionally, enter one
+or more atom IDs in the chemical-state field to add a secondary y-axis showing
+the molecule containing each atom over time, labelled by either chemical formula
+or SMILES notation.
 
 All embedded line plots show the nearest series label and its x/y coordinates
 when the mouse pointer is close to a plotted data point.

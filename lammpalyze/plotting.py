@@ -527,33 +527,132 @@ def atom_molecule_membership(
 ) -> tuple[list[int], list[int], dict[int, str]]:
     """Numerize the molecule containing one atom at each parsed bond timestep."""
 
+    timesteps, labels = atom_molecule_labels(simulation, atom_id, notation)
+    label_to_number: dict[str, int] = {}
+    numeric_values = [
+        label_to_number.setdefault(label, len(label_to_number) + 1)
+        for label in labels
+    ]
+    number_to_label = {number: label for label, number in label_to_number.items()}
+    return timesteps, numeric_values, number_to_label
+
+
+def atom_molecule_labels(
+    simulation: LoadedSimulation,
+    atom_id: int,
+    notation: str = "formula",
+) -> tuple[list[int], list[str]]:
+    """Return the molecule label containing one atom at each parsed bond timestep."""
+
     normalized_notation = notation.strip().lower()
     if normalized_notation not in {"formula", "smiles"}:
         raise ValueError("Molecule notation must be 'formula' or 'smiles'.")
-    molecule_values = simulation.chem_formulas if normalized_notation == "formula" else simulation.smiles
+    molecule_values = (
+        simulation.chem_formulas
+        if normalized_notation == "formula"
+        else simulation.smiles
+    )
     if not simulation.smiles_id or not molecule_values:
         raise ValueError(f"Simulation {simulation.index} has no bond-derived molecule data.")
 
     atom_key = str(atom_id)
     timesteps = []
-    numeric_values = []
-    label_to_number: dict[str, int] = {}
+    molecule_labels = []
     for timestep, components in sorted(simulation.smiles_id.items()):
         labels = molecule_values.get(timestep, [])
         for component_index, component_atoms in enumerate(components):
-            if not any(str(value) == atom_key for value in component_atoms) or component_index >= len(labels):
+            if (
+                not any(str(value) == atom_key for value in component_atoms)
+                or component_index >= len(labels)
+            ):
                 continue
             label = labels[component_index]
-            number = label_to_number.setdefault(label, len(label_to_number) + 1)
             timesteps.append(timestep)
-            numeric_values.append(number)
+            molecule_labels.append(label)
             break
     if not timesteps:
         raise ValueError(
             f"Atom {atom_id} was not found in simulation {simulation.index} molecule observations."
         )
+    return timesteps, molecule_labels
+
+
+def add_atom_molecule_axis(
+    axis,
+    simulations: list[LoadedSimulation],
+    atom_ids: list[int],
+    *,
+    notation: str,
+    legend_location: str,
+    theme: str,
+) -> None:
+    """Add molecule-membership tracks to a secondary y-axis."""
+
+    if not simulations:
+        raise ValueError("Select at least one simulation for atom tracking.")
+    if not atom_ids:
+        raise ValueError("Select at least one atom ID for molecule tracking.")
+
+    normalized_notation = notation.strip().lower()
+    if normalized_notation not in {"formula", "smiles"}:
+        raise ValueError("Molecule notation must be 'formula' or 'smiles'.")
+
+    style = _theme_colors(theme)
+    label_to_number: dict[str, int] = {}
+    tracks = []
+    for simulation in simulations:
+        for atom_id in atom_ids:
+            timesteps, labels = atom_molecule_labels(
+                simulation,
+                atom_id,
+                normalized_notation,
+            )
+            values = [
+                label_to_number.setdefault(label, len(label_to_number) + 1)
+                for label in labels
+            ]
+            tracks.append((simulation.index, atom_id, timesteps, values))
+
+    molecule_axis = axis.twinx()
+    colors = _line_colors(len(tracks), None)
+    for (simulation_index, atom_id, timesteps, values), color in zip(
+        tracks,
+        colors,
+        strict=True,
+    ):
+        if len(simulations) == 1 and len(atom_ids) == 1:
+            label = f"Atom {atom_id} molecule"
+        else:
+            label = f"Simulation {simulation_index} - atom {atom_id} molecule"
+        molecule_axis.step(
+            timesteps,
+            values,
+            where="post",
+            color=color,
+            linewidth=2.0,
+            alpha=0.9,
+            label=label,
+        )
+
     number_to_label = {number: label for label, number in label_to_number.items()}
-    return timesteps, numeric_values, number_to_label
+    ticks = sorted(number_to_label)
+    molecule_axis.set_yticks(ticks)
+    molecule_axis.set_yticklabels([f"{number}: {number_to_label[number]}" for number in ticks])
+    notation_label = "formula" if normalized_notation == "formula" else "SMILES"
+    axis_label = (
+        f"Atom {atom_ids[0]} molecule ({notation_label})"
+        if len(simulations) == 1 and len(atom_ids) == 1
+        else f"Molecule state ({notation_label})"
+    )
+    molecule_axis.set_ylabel(
+        axis_label,
+        color=style["mean"],
+        fontsize=13,
+        fontweight="bold",
+    )
+    molecule_axis.tick_params(axis="y", colors=style["mean"])
+    molecule_axis.spines["right"].set_color(style["mean"])
+    _rebuild_combined_legend(axis, molecule_axis, legend_location, style)
 
 
 def _add_atom_molecule_axis(
@@ -567,33 +666,19 @@ def _add_atom_molecule_axis(
 ) -> None:
     """Add a numbered molecule-membership track to a pairwise plot."""
 
-    timesteps, numeric_values, number_to_label = atom_molecule_membership(
-        simulation,
-        atom_id,
-        notation,
+    add_atom_molecule_axis(
+        axis,
+        [simulation],
+        [atom_id],
+        notation=notation,
+        legend_location=legend_location,
+        theme=theme,
     )
-    style = _theme_colors(theme)
-    molecule_axis = axis.twinx()
-    molecule_axis.step(
-        timesteps,
-        numeric_values,
-        where="post",
-        color=style["mean"],
-        linewidth=2.0,
-        alpha=0.9,
-        label=f"Atom {atom_id} molecule",
-    )
-    ticks = sorted(number_to_label)
-    molecule_axis.set_yticks(ticks)
-    molecule_axis.set_yticklabels([f"{number}: {number_to_label[number]}" for number in ticks])
-    molecule_axis.set_ylabel(
-        f"Atom {atom_id} molecule ({'formula' if notation == 'formula' else 'SMILES'})",
-        color=style["mean"],
-        fontsize=13,
-        fontweight="bold",
-    )
-    molecule_axis.tick_params(axis="y", colors=style["mean"])
-    molecule_axis.spines["right"].set_color(style["mean"])
+
+
+def _rebuild_combined_legend(axis, molecule_axis, legend_location: str, style: dict[str, str]) -> None:
+    """Merge primary and secondary-axis legend handles."""
+
     primary_legend = axis.get_legend()
     if primary_legend is not None:
         primary_legend.remove()

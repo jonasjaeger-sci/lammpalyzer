@@ -14,6 +14,22 @@ from lammpalyze.parsers import (
     parse_bond_observations,
     parse_bonds,
 )
+from lammpalyze.parsers.bonds import (
+    _RawBondFrame,
+    _temporally_filtered_bond_order_frames,
+)
+
+
+def _raw_bond_frame(timestep: int, bond_orders: dict[tuple[int, int], float]) -> _RawBondFrame:
+    """Create a minimal raw bond frame for temporal-filter tests."""
+
+    return _RawBondFrame(
+        timestep=timestep,
+        atoms={"1": "C", "2": "H"},
+        atom_types={"1": 1, "2": 2},
+        bond_orders=bond_orders,
+        charges={"1": 0.0, "2": 0.0},
+    )
 
 
 def test_eval_species_handles_changing_headers(tmp_path: Path):
@@ -257,6 +273,50 @@ def test_parse_bonds_keeps_bond_equal_to_cutoff(tmp_path: Path):
     assert smiles_atoms[0] == [["1", "2"]]
 
 
+def test_temporal_filter_backdates_accepted_bond_state_changes():
+    """Apply a persistent state change starting at the first candidate frame."""
+
+    frames = [
+        _raw_bond_frame(0, {}),
+        _raw_bond_frame(10, {(1, 2): 0.8}),
+        _raw_bond_frame(20, {(1, 2): 0.8}),
+    ]
+
+    bond_orders = _temporally_filtered_bond_order_frames(
+        frames,
+        {},
+        0.3,
+        {},
+        persistence_frames=2,
+        persistence_timesteps=0,
+        hysteresis=0.0,
+    )
+
+    assert bond_orders == [{}, {(1, 2): 1}, {(1, 2): 1}]
+
+
+def test_temporal_filter_keeps_stable_state_for_unresolved_flickers():
+    """Do not backdate a candidate state that disappears before acceptance."""
+
+    frames = [
+        _raw_bond_frame(0, {(1, 2): 0.8}),
+        _raw_bond_frame(10, {}),
+        _raw_bond_frame(20, {(1, 2): 0.8}),
+    ]
+
+    bond_orders = _temporally_filtered_bond_order_frames(
+        frames,
+        {},
+        0.3,
+        {},
+        persistence_frames=2,
+        persistence_timesteps=0,
+        hysteresis=0.0,
+    )
+
+    assert bond_orders == [{(1, 2): 1}, {(1, 2): 1}, {(1, 2): 1}]
+
+
 def test_parse_bonds_filters_one_frame_bond_state_flicker(tmp_path: Path):
     """Keep an accepted bond when its disappearance does not persist."""
 
@@ -289,7 +349,7 @@ def test_parse_bonds_filters_one_frame_bond_state_flicker(tmp_path: Path):
 
 
 def test_parse_bonds_accepts_transition_after_configured_timestep_duration(tmp_path: Path):
-    """Use elapsed simulation timesteps independently of bond-frame frequency."""
+    """Backdate accepted transitions after the configured timestep duration."""
 
     pytest.importorskip("rdkit")
     bond_file = tmp_path / "bonds.reax"
@@ -313,7 +373,8 @@ def test_parse_bonds_accepts_transition_after_configured_timestep_duration(tmp_p
         bond_state_persistence_timesteps=100,
     )
 
-    assert result.smiles_atoms[20] == [["1"], ["2"]]
+    assert result.smiles_atoms[10] == [["1", "2"]]
+    assert result.smiles_atoms[20] == [["1", "2"]]
     assert result.smiles_atoms[110] == [["1", "2"]]
 
 

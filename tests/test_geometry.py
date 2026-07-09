@@ -77,6 +77,40 @@ def test_plot_geometry_labels_angle_units(tmp_path: Path):
     assert figure.axes[0].lines[0].get_label() == "Simulation 7 - 1-2-3"
 
 
+def test_plot_geometry_adds_multiple_atom_molecule_tracks(tmp_path: Path):
+    """Overlay selected atom molecule states on a shared secondary y-axis."""
+
+    simulation = _simulation(tmp_path, _trajectory_text("0 0 0", "1 0 0", "1 1 0"))
+    simulation.smiles_id = {0: [["1"], ["2"]], 10: [["1", "2"]]}
+    simulation.smiles = {0: ["[Li]", "[O]"], 10: ["[Li]O"]}
+    simulation.chem_formulas = {0: ["Li", "O"], 10: ["LiO"]}
+    results = compute_geometry([simulation], "distance", [(1, 2)])
+
+    figure = plot_geometry(
+        results,
+        "distance",
+        simulations=[simulation],
+        molecule_atom_ids=[1, 2],
+        molecule_notation="formula",
+        legend_location="upper left",
+    )
+
+    assert len(figure.axes) == 2
+    molecule_axis = figure.axes[1]
+    assert [list(line.get_ydata()) for line in molecule_axis.lines] == [[1, 2], [3, 2]]
+    assert [tick.get_text() for tick in molecule_axis.get_yticklabels()] == [
+        "1: Li",
+        "2: LiO",
+        "3: O",
+    ]
+    assert molecule_axis.get_ylabel() == "Molecule state (formula)"
+    assert [text.get_text() for text in figure.axes[0].get_legend().get_texts()] == [
+        "Simulation 7 - 1-2",
+        "Simulation 7 - atom 1 molecule",
+        "Simulation 7 - atom 2 molecule",
+    ]
+
+
 def _simulation(tmp_path: Path, text: str) -> LoadedSimulation:
     """Create one trajectory-backed simulation fixture."""
 

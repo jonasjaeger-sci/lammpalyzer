@@ -77,6 +77,7 @@ class _BondState:
     candidate_order: int | None = None
     candidate_frames: int = 0
     candidate_start_timestep: int | None = None
+    candidate_start_frame_index: int | None = None
 
 
 def parse_bond_observations(
@@ -116,17 +117,22 @@ def parse_bond_observations(
     ] = {}
     bond_states: dict[tuple[int, int], _BondState] = {}
 
-    for frame_index, frame in enumerate(_iter_raw_bond_frames(bond_file, type_to_element)):
-        bonds = _temporally_filtered_rdkit_bonds(
-            frame,
-            frame_index,
-            bond_states,
-            default_bond_order_cutoff,
-            pair_cutoffs,
-            bond_state_persistence_frames,
-            bond_state_persistence_timesteps,
-            bond_order_hysteresis,
-        )
+    raw_frames = list(_iter_raw_bond_frames(bond_file, type_to_element))
+    bond_order_frames = _temporally_filtered_bond_order_frames(
+        raw_frames,
+        bond_states,
+        default_bond_order_cutoff,
+        pair_cutoffs,
+        bond_state_persistence_frames,
+        bond_state_persistence_timesteps,
+        bond_order_hysteresis,
+    )
+
+    for frame, bond_orders in zip(raw_frames, bond_order_frames, strict=True):
+        bonds = [
+            (atom_i, atom_j, _rdkit_bond_from_order(order))
+            for (atom_i, atom_j), order in sorted(bond_orders.items())
+        ]
         _store_bond_frame(
             frame.timestep,
             frame.atoms,
@@ -155,6 +161,73 @@ def parse_bond_observations(
         component_properties=component_properties,
         excluded_components=excluded_components,
     )
+
+
+def _temporally_filtered_bond_order_frames(
+    frames: list[_RawBondFrame],
+    states: dict[tuple[int, int], _BondState],
+    default_cutoff: float,
+    pair_cutoffs: Mapping[tuple[int, int], float],
+    persistence_frames: int,
+    persistence_timesteps: int,
+    hysteresis: float,
+) -> list[dict[tuple[int, int], int]]:
+    """Return finalized per-frame bond orders with accepted changes backdated."""
+
+    bond_order_frames: list[dict[tuple[int, int], int]] = []
+    for frame_index, frame in enumerate(frames):
+        frame_bond_orders: dict[tuple[int, int], int] = {}
+        observed_pairs = set(frame.bond_orders)
+        for atom_pair in sorted(observed_pairs | set(states)):
+            atom_i, atom_j = atom_pair
+            if str(atom_i) not in frame.atom_types or str(atom_j) not in frame.atom_types:
+                continue
+            type_pair = tuple(sorted((frame.atom_types[str(atom_i)], frame.atom_types[str(atom_j)])))
+            cutoff = pair_cutoffs.get(type_pair, default_cutoff)
+            bond_order = frame.bond_orders.get(atom_pair, 0.0)
+            state = states.setdefault(atom_pair, _BondState())
+
+            if frame_index == 0:
+                state.stable_order = _discrete_bond_order(bond_order) if bond_order >= cutoff else 0
+                _clear_candidate_state(state)
+            else:
+                desired_order = _desired_bond_state(state.stable_order, bond_order, cutoff, hysteresis)
+                accepted = _update_bond_state(
+                    state,
+                    desired_order,
+                    frame.timestep,
+                    frame_index,
+                    persistence_frames,
+                    persistence_timesteps,
+                )
+                if accepted is not None:
+                    start_frame_index, accepted_order = accepted
+                    _backdate_accepted_bond_order(
+                        bond_order_frames,
+                        atom_pair,
+                        start_frame_index,
+                        accepted_order,
+                    )
+
+            if state.stable_order:
+                frame_bond_orders[atom_pair] = state.stable_order
+        bond_order_frames.append(frame_bond_orders)
+    return bond_order_frames
+
+
+def _backdate_accepted_bond_order(
+    bond_order_frames: list[dict[tuple[int, int], int]],
+    atom_pair: tuple[int, int],
+    start_frame_index: int,
+    accepted_order: int,
+) -> None:
+    """Apply an accepted candidate state to previously emitted candidate frames."""
+
+    for frame_bond_orders in bond_order_frames[start_frame_index:]:
+        if accepted_order:
+            frame_bond_orders[atom_pair] = accepted_order
+        else:
+            frame_bond_orders.pop(atom_pair, None)
 
 
 def _iter_raw_bond_frames(
@@ -242,47 +315,6 @@ def _validate_bond_analysis_options(
         raise ValueError("ion_charge_threshold must not be negative.")
 
 
-def _temporally_filtered_rdkit_bonds(
-    frame: _RawBondFrame,
-    frame_index: int,
-    states: dict[tuple[int, int], _BondState],
-    default_cutoff: float,
-    pair_cutoffs: Mapping[tuple[int, int], float],
-    persistence_frames: int,
-    persistence_timesteps: int,
-    hysteresis: float,
-) -> list[tuple[int, int, object]]:
-    """Return discrete bonds after hysteresis and persistence filtering."""
-
-    bonds = []
-    observed_pairs = set(frame.bond_orders)
-    for atom_pair in sorted(observed_pairs | set(states)):
-        atom_i, atom_j = atom_pair
-        if str(atom_i) not in frame.atom_types or str(atom_j) not in frame.atom_types:
-            continue
-        type_pair = tuple(sorted((frame.atom_types[str(atom_i)], frame.atom_types[str(atom_j)])))
-        cutoff = pair_cutoffs.get(type_pair, default_cutoff)
-        bond_order = frame.bond_orders.get(atom_pair, 0.0)
-        state = states.setdefault(atom_pair, _BondState())
-
-        if frame_index == 0:
-            state.stable_order = _discrete_bond_order(bond_order) if bond_order >= cutoff else 0
-            _clear_candidate_state(state)
-        else:
-            desired_order = _desired_bond_state(state.stable_order, bond_order, cutoff, hysteresis)
-            _update_bond_state(
-                state,
-                desired_order,
-                frame.timestep,
-                persistence_frames,
-                persistence_timesteps,
-            )
-
-        if state.stable_order:
-            bonds.append((atom_i, atom_j, _rdkit_bond_from_order(state.stable_order)))
-    return bonds
-
-
 def _desired_bond_state(stable_order: int, bond_order: float, cutoff: float, hysteresis: float) -> int:
     """Return the instantaneous discrete state using connectivity hysteresis."""
 
@@ -299,26 +331,31 @@ def _update_bond_state(
     state: _BondState,
     desired_order: int,
     timestep: int,
+    frame_index: int,
     persistence_frames: int,
     persistence_timesteps: int,
-) -> None:
+) -> tuple[int, int] | None:
     """Accept a new discrete state after it persists long enough."""
 
     if desired_order == state.stable_order:
         _clear_candidate_state(state)
-        return
+        return None
     if state.candidate_order != desired_order:
         state.candidate_order = desired_order
         state.candidate_frames = 1
         state.candidate_start_timestep = timestep
+        state.candidate_start_frame_index = frame_index
     else:
         state.candidate_frames += 1
 
     start = state.candidate_start_timestep
     duration = timestep - start if start is not None else 0
     if state.candidate_frames >= persistence_frames and duration >= persistence_timesteps:
+        start_frame_index = state.candidate_start_frame_index
         state.stable_order = desired_order
         _clear_candidate_state(state)
+        return (frame_index if start_frame_index is None else start_frame_index, desired_order)
+    return None
 
 
 def _clear_candidate_state(state: _BondState) -> None:
@@ -327,6 +364,7 @@ def _clear_candidate_state(state: _BondState) -> None:
     state.candidate_order = None
     state.candidate_frames = 0
     state.candidate_start_timestep = None
+    state.candidate_start_frame_index = None
 
 
 def _discrete_bond_order(bond_order: float) -> int:

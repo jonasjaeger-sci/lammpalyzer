@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+import matplotlib.pyplot as plt
 import pandas as pd
 
+from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.geometry import GeometrySeries
-from lammpalyze.plotting import ReferenceLines, _plot_computed_series
+from lammpalyze.plotting import (
+    ReferenceLines,
+    _plot_computed_series,
+    add_atom_molecule_axis,
+)
 
 
 def plot_geometry(
     results: list[GeometrySeries],
     kind: str,
     *,
+    simulations: list[LoadedSimulation] | None = None,
+    molecule_atom_ids: list[int] | None = None,
+    molecule_notation: str = "formula",
     step_range: tuple[float, float] | None = None,
     y_range: tuple[float, float] | None = None,
     running_average_points: int | None = None,
@@ -35,7 +44,7 @@ def plot_geometry(
         )
     title = "Pair distances" if kind == "distance" else "Three-atom angles"
     y_label = "Distance (Å)" if kind == "distance" else "Angle (degrees)"
-    return _plot_computed_series(
+    figure = _plot_computed_series(
         series,
         title=title,
         y_label=y_label,
@@ -46,3 +55,27 @@ def plot_geometry(
         legend_location=legend_location,
         theme=theme,
     )
+    if molecule_atom_ids:
+        if simulations is None:
+            plt.close(figure)
+            raise ValueError("Provide simulations when adding molecule-state tracks.")
+        result_simulation_indices = {result.simulation_index for result in results}
+        tracked_simulations = [
+            simulation
+            for simulation in simulations
+            if simulation.index in result_simulation_indices
+        ]
+        try:
+            add_atom_molecule_axis(
+                figure.axes[0],
+                tracked_simulations,
+                molecule_atom_ids,
+                notation=molecule_notation,
+                legend_location=legend_location,
+                theme=theme,
+            )
+        except Exception:
+            plt.close(figure)
+            raise
+        figure.tight_layout()
+    return figure

@@ -66,6 +66,21 @@ class GeometryTabMixin:
         )
         self.geometry_hint.pack(anchor="w", pady=(0, 12))
 
+        self.geometry_molecule_atoms = tk.StringVar()
+        ttk.Label(controls, text="Chemical-state atom ID(s) (optional)").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.geometry_molecule_atoms).pack(
+            fill="x",
+            pady=(0, 8),
+        )
+        self.geometry_molecule_notation = tk.StringVar(value="Chemical formula")
+        ttk.Label(controls, text="Chemical-state notation").pack(anchor="w")
+        ttk.Combobox(
+            controls,
+            textvariable=self.geometry_molecule_notation,
+            values=["Chemical formula", "SMILES"],
+            state="readonly",
+        ).pack(fill="x", pady=(0, 12))
+
         self._build_computed_plot_options(controls, "geometry")
         ttk.Button(controls, text="Plot", command=self._plot_geometry).pack(fill="x")
         ttk.Button(controls, text="Export PNG", command=self._save_geometry_plot).pack(
@@ -110,10 +125,28 @@ class GeometryTabMixin:
                 groups,
                 timestep_range=options["step_range"],
             )
-            figure = plot_geometry(results, kind, **options)
+            molecule_atoms = self._geometry_molecule_atom_ids()
+            figure = plot_geometry(
+                results,
+                kind,
+                simulations=simulations,
+                molecule_atom_ids=molecule_atoms,
+                molecule_notation=(
+                    "formula"
+                    if self.geometry_molecule_notation.get() == "Chemical formula"
+                    else "smiles"
+                ),
+                **options,
+            )
             self._replace_canvas("_geometry_canvas", self._geometry_plot_area, figure)
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("Geometry plotting failed", str(exc))
+
+    def _geometry_molecule_atom_ids(self) -> list[int] | None:
+        """Return optional atom IDs for chemical-state overlay."""
+
+        value = self.geometry_molecule_atoms.get().strip()
+        return parse_atom_ids(value) if value else None
 
     def _save_geometry_plot(self) -> None:
         """Export the displayed trajectory geometry plot as PNG."""
