@@ -162,26 +162,12 @@ class ThermoTabMixin:
         ttk.Entry(controls, textvariable=self.thermo_gradient_end).pack(fill="x", pady=(0, 12))
 
         ttk.Label(controls, text="Step range").pack(anchor="w")
-        self._thermo_step_bounds: tuple[float, float] | None = None
-        self._updating_thermo_step_controls = False
-        self.thermo_step_min = tk.DoubleVar()
-        self.thermo_step_max = tk.DoubleVar()
-        self.thermo_step_label = tk.StringVar()
-        ttk.Label(controls, textvariable=self.thermo_step_label).pack(anchor="w", pady=(0, 4))
-        self.thermo_step_min_slider = ttk.Scale(
-            controls,
-            orient="horizontal",
-            variable=self.thermo_step_min,
-            command=lambda _value: self._on_thermo_step_slider("min"),
-        )
-        self.thermo_step_min_slider.pack(fill="x", pady=(0, 4))
-        self.thermo_step_max_slider = ttk.Scale(
-            controls,
-            orient="horizontal",
-            variable=self.thermo_step_max,
-            command=lambda _value: self._on_thermo_step_slider("max"),
-        )
-        self.thermo_step_max_slider.pack(fill="x", pady=(0, 8))
+        self.thermo_step_min = tk.StringVar()
+        self.thermo_step_max = tk.StringVar()
+        ttk.Label(controls, text="Minimum").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.thermo_step_min).pack(fill="x", pady=(0, 4))
+        ttk.Label(controls, text="Maximum").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.thermo_step_max).pack(fill="x", pady=(0, 8))
         ttk.Button(
             controls,
             text="Full step range",
@@ -287,11 +273,15 @@ class ThermoTabMixin:
         return {index: label_var.get() for index, label_var in self.thermo_label_vars.items()}
 
     def _thermo_step_range(self) -> tuple[float, float] | None:
-        """Return the selected thermo step range, or ``None`` if unavailable."""
+        """Return the selected thermo step range, or ``None`` for auto limits."""
 
-        if self._thermo_step_bounds is None:
+        minimum = self.thermo_step_min.get().strip()
+        maximum = self.thermo_step_max.get().strip()
+        if not minimum and not maximum:
             return None
-        return tuple(sorted((self.thermo_step_min.get(), self.thermo_step_max.get())))
+        if not minimum or not maximum:
+            raise ValueError("Enter both step minimum and maximum, or reset to the full step range.")
+        return tuple(sorted((float(minimum), float(maximum))))
 
     def _thermo_y_range(self) -> tuple[float, float] | None:
         """Return the selected thermo y-axis range, or ``None`` for auto limits."""
@@ -361,40 +351,29 @@ class ThermoTabMixin:
         self._update_thermo_y_controls(preserve=preserve)
 
     def _update_thermo_step_controls(self, preserve: bool) -> None:
-        """Refresh thermo step sliders, optionally preserving their values."""
+        """Refresh thermo step range entries, optionally preserving their values."""
 
         bounds = self._thermo_step_bounds_for_simulations(self._selected_thermo_simulations())
         if bounds is None:
             bounds = self._thermo_step_bounds_for_simulations(self._thermo_simulations)
-        previous_bounds = self._thermo_step_bounds
-        self._thermo_step_bounds = bounds
         if bounds is None:
-            self.thermo_step_label.set("No step data")
-            self.thermo_step_min_slider.configure(state="disabled")
-            self.thermo_step_max_slider.configure(state="disabled")
+            if not preserve:
+                self.thermo_step_min.set("")
+                self.thermo_step_max.set("")
             return
 
-        lower, upper = bounds
-        if preserve and previous_bounds is not None:
-            current_lower = self.thermo_step_min.get()
-            current_upper = self.thermo_step_max.get()
-            lower_value = min(max(current_lower, lower), upper)
-            upper_value = min(max(current_upper, lower), upper)
-            if lower_value > upper_value or (lower_value == upper_value and lower != upper):
-                lower_value, upper_value = lower, upper
+        if preserve and self.thermo_step_min.get().strip() and self.thermo_step_max.get().strip():
+            try:
+                current_lower = float(self.thermo_step_min.get())
+                current_upper = float(self.thermo_step_max.get())
+            except ValueError:
+                current_lower, current_upper = bounds
+            lower, upper = sorted((current_lower, current_upper))
         else:
-            lower_value, upper_value = lower, upper
+            lower, upper = bounds
 
-        self._updating_thermo_step_controls = True
-        self.thermo_step_min_slider.configure(from_=lower, to=upper)
-        self.thermo_step_max_slider.configure(from_=lower, to=upper)
-        self.thermo_step_min.set(lower_value)
-        self.thermo_step_max.set(upper_value)
-        state = "normal" if lower != upper else "disabled"
-        self.thermo_step_min_slider.configure(state=state)
-        self.thermo_step_max_slider.configure(state=state)
-        self._updating_thermo_step_controls = False
-        self._refresh_thermo_step_label()
+        self.thermo_step_min.set(self._format_step_value(lower))
+        self.thermo_step_max.set(self._format_step_value(upper))
 
     def _thermo_step_bounds_for_simulations(self, simulations) -> tuple[float, float] | None:
         """Return min and max Step values across simulations with thermo data."""
@@ -410,31 +389,6 @@ class ThermoTabMixin:
         if not bounds:
             return None
         return min(bound[0] for bound in bounds), max(bound[1] for bound in bounds)
-
-    def _on_thermo_step_slider(self, changed: str) -> None:
-        """Keep thermo step sliders ordered after one slider changes."""
-
-        if self._updating_thermo_step_controls:
-            return
-        lower = self.thermo_step_min.get()
-        upper = self.thermo_step_max.get()
-        if lower > upper:
-            if changed == "min":
-                self.thermo_step_max.set(lower)
-            else:
-                self.thermo_step_min.set(upper)
-        self._refresh_thermo_step_label()
-
-    def _refresh_thermo_step_label(self) -> None:
-        """Update the text label that displays the selected step range."""
-
-        if self._thermo_step_bounds is None:
-            self.thermo_step_label.set("No step data")
-            return
-        lower, upper = self._thermo_step_range() or self._thermo_step_bounds
-        self.thermo_step_label.set(
-            f"{self._format_step_value(lower)} to {self._format_step_value(upper)}"
-        )
 
     def _update_thermo_y_controls(self, preserve: bool) -> None:
         """Refresh y-axis range entries for the selected thermo parameter."""
