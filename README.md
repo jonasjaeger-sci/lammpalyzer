@@ -337,6 +337,12 @@ The GUI contains tabs for common analysis tasks:
   optional point-based running averages, and a second cross-simulation mean and
   standard-deviation plot over the shared radial range. A dropdown controls the
   legend placement in both plots.
+- `Structural relaxation`: calculate a preliminary static structure factor
+  `S(q)` from uniformly sampled production frames, then use the first `S(q)`
+  peak to calculate the incoherent scattering function `F_s(q,t)`. Select one
+  or more simulations, all atoms or one element, the production start timestep,
+  number of frames, number of time origins, maximum q-vector integer index, and
+  number of uncertainty blocks.
 - `Atomic charges`: plot per-element mean ReaxFF partial charges over time with
   population-standard-deviation bands or error bars, selecting simulations,
   elements, uncertainty style, timestep range, and plot background.
@@ -350,6 +356,48 @@ The GUI contains tabs for common analysis tasks:
 - `Reaction visualization`: open the first occurrence of a selected reaction in
   OVITO, if OVITO is installed.
 
+### Structural Relaxation Calculations
+
+The `Structural relaxation` tab reads configured trajectory files and starts
+from the user-entered production timestep. From all frames at or after that
+timestep, it selects the requested number of frames uniformly over the available
+range. The default is 100 frames. The same atom selection is used for both
+`S(q)` and `F_s(q,t)`: choose `All` for every atom or choose one element from
+`element_list`.
+
+Wave vectors are generated as:
+
+```text
+q = 2*pi/L * (n_x, n_y, n_z)
+```
+
+where `n_x`, `n_y`, and `n_z` are integers between `-max_q_index` and
+`max_q_index`, excluding `(0, 0, 0)`. `L` is the mean selected-frame box length
+in each direction. Vectors with the same rounded magnitude `|q|` are grouped
+into shells, and each shell is averaged to reduce directional noise. For each
+frame and q shell, lammpalyze evaluates:
+
+```text
+S(q) = < |sum_j exp(i q . r_j)|^2 / N >_shell
+```
+
+The plotted `S(q)` value is the frame average for each `|q|` shell. Error bars
+are estimated by splitting the sampled frames into contiguous blocks, averaging
+inside each block, and taking the standard error of the block means.
+
+The first local maximum in the averaged `S(q)` curve is used as the preliminary
+structural wave vector for the incoherent scattering calculation. If no local
+maximum is found, the global maximum is used. For each uniformly spaced time
+origin, default 10 origins, lammpalyze computes:
+
+```text
+F_s(q,t) = < cos(q . [r_j(t0 + t) - r_j(t0)]) >_{j, shell, origins}
+```
+
+Only time origins with available future frames contribute at each lag time.
+Uncertainty bands are estimated by block averaging over the selected time
+origins. The time axis is reported in trajectory timestep units.
+
 ## Output: `paths.csv`
 
 The reaction path output is a CSV file. It starts with a small metadata block,
@@ -360,7 +408,7 @@ Metadata,Value
 input_file,/path/to/lmplyz.inp
 run_date,2026-05-29T15:20:30+02:00
 simulation_ids,1;2
-software_version,1.3.0
+software_version,1.4.0
 default_bond_order_cutoff,0.3
 bond_order_cutoffs,3-3:0.8;3-4:0.55
 bond_state_persistence_frames,2
@@ -425,6 +473,8 @@ lammpalyze/
   reactions.py    reaction path counting and occurrence lookup
   rdf.py          radial distribution function calculations
   rdf_plotting.py radial distribution plotting and cross-simulation averaging
+  structure.py    static structure factor and incoherent scattering calculations
+  structure_plotting.py structural-relaxation plotting
   geometry.py     trajectory pair-distance and three-atom-angle calculations
   geometry_plotting.py distance-and-angle plotting
   plotting.py     Matplotlib plotting helpers
@@ -433,6 +483,7 @@ lammpalyze/
     charge_tab.py atomic partial-charge plotting tab
     computed_tabs.py pairwise-data and mean-square-displacement tabs
     geometry_tab.py trajectory distance-and-angle tab
+    structure_tab.py structural-relaxation tab
   smiles.py       SMILES utilities and molecule rendering
   ovito.py        OVITO scene generation
 examples/

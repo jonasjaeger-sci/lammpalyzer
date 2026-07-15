@@ -17,6 +17,7 @@ from lammpalyze.gui.molecule_tab import MoleculeTabMixin
 from lammpalyze.gui.rdf_tab import RdfTabMixin
 from lammpalyze.gui.reactions_tab import ReactionTabMixin
 from lammpalyze.gui.species_tab import SpeciesTabMixin
+from lammpalyze.gui.structure_tab import StructuralRelaxationTabMixin
 from lammpalyze.gui.thermo_tab import ThermoTabMixin
 
 
@@ -29,6 +30,7 @@ class LammpalyzeGUI(
     GeometryTabMixin,
     ChargeTabMixin,
     RdfTabMixin,
+    StructuralRelaxationTabMixin,
     MoleculeTabMixin,
     ReactionTabMixin,
     CanvasMixin,
@@ -55,6 +57,8 @@ class LammpalyzeGUI(
         self._geometry_canvas: FigureCanvasTkAgg | None = None
         self._msd_canvases: list[FigureCanvasTkAgg] = []
         self._rdf_timesteps_by_simulation: dict[int, list[int]] = {}
+        self._structure_canvases: list[FigureCanvasTkAgg] = []
+        self._structure_timesteps_by_simulation: dict[int, list[int]] = {}
         self._molecule_photo = None
         self._molecule_smiles: str | None = None
         self._molecule_gallery_mode = "single"
@@ -95,6 +99,7 @@ class LammpalyzeGUI(
         geometry_tab = ttk.Frame(tabs)
         msd_tab = ttk.Frame(tabs)
         rdf_tab = ttk.Frame(tabs)
+        structure_tab = ttk.Frame(tabs)
         charge_tab = ttk.Frame(tabs)
         smiles_tab = ttk.Frame(tabs)
         reaction_table_tab = ttk.Frame(tabs)
@@ -106,6 +111,7 @@ class LammpalyzeGUI(
         tabs.add(geometry_tab, text="Distances and angles")
         tabs.add(msd_tab, text="Mean-square displacement")
         tabs.add(rdf_tab, text="Radial distribution")
+        tabs.add(structure_tab, text="Structural relaxation")
         tabs.add(charge_tab, text="Atomic charges")
         tabs.add(smiles_tab, text="Molecule visualization")
         tabs.add(reaction_table_tab, text="Reaction paths")
@@ -118,6 +124,7 @@ class LammpalyzeGUI(
         self._build_geometry_tab(geometry_tab)
         self._build_msd_tab(msd_tab)
         self._build_rdf_tab(rdf_tab)
+        self._build_structure_tab(structure_tab)
         self._build_charge_tab(charge_tab)
         self._build_smiles_tab(smiles_tab)
         self._build_reaction_table_tab(reaction_table_tab)
@@ -138,6 +145,10 @@ class LammpalyzeGUI(
         for canvas in self._rdf_canvases:
             self._destroy_canvas(canvas)
         self._rdf_canvases = []
+
+        for canvas in self._structure_canvases:
+            self._destroy_canvas(canvas)
+        self._structure_canvases = []
 
         if self._charge_canvas is not None:
             self._destroy_canvas(self._charge_canvas)
