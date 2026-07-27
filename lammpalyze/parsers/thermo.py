@@ -12,11 +12,12 @@ def eval_thermo(
     indicator1: str = "Step",
     indicator2: str = "Loop",
 ) -> tuple[dict[str, list[float]], pd.DataFrame]:
-    """Parse the thermo table from a LAMMPS log file."""
+    """Parse all thermo tables from a LAMMPS log file."""
 
     thermo_path = Path(thermo_file)
-    thermo_dict: dict[str, list[float]] = {}
     thermo_cols: list[str] = []
+    first_thermo_cols: list[str] | None = None
+    thermo_rows: list[dict[str, float]] = []
     in_table = False
 
     with thermo_path.open(encoding="utf-8") as handle:
@@ -27,20 +28,30 @@ def eval_thermo(
 
             if stripped.startswith(indicator1):
                 thermo_cols = stripped.split()
-                thermo_dict = {col: [] for col in thermo_cols}
-                in_table = True
+                if first_thermo_cols is None:
+                    first_thermo_cols = thermo_cols
+                in_table = thermo_cols == first_thermo_cols
                 continue
 
             if stripped.startswith(indicator2):
-                break
+                in_table = False
+                thermo_cols = []
+                continue
 
             if in_table:
                 values = stripped.split()
                 if len(values) < len(thermo_cols):
                     continue
-                for value, col in zip(values, thermo_cols, strict=False):
-                    thermo_dict[col].append(float(value))
+                try:
+                    row = {
+                        col: float(value)
+                        for value, col in zip(values, thermo_cols, strict=False)
+                    }
+                except ValueError:
+                    continue
+                thermo_rows.append(row)
 
-    if not thermo_dict:
+    if not thermo_rows:
         raise ValueError(f"No thermo table starting with {indicator1!r} found in {thermo_path}")
-    return thermo_dict, pd.DataFrame(thermo_dict)
+    thermo_frame = pd.DataFrame(thermo_rows)
+    return thermo_frame.to_dict(orient="list"), thermo_frame

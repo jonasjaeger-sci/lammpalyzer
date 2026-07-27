@@ -5,8 +5,34 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from lammpalyze.gui.helpers import THERMO_DEFAULTS, parse_reference_lines, parse_simulation_groups
+from lammpalyze.gui.helpers import (
+    ordered_thermo_parameters,
+    parse_reference_lines,
+    parse_simulation_groups,
+)
 from lammpalyze.plotting import plot_thermo
+
+
+def apply_thermo_axis_ranges(
+    canvases,
+    step_range: tuple[float, float] | None,
+    y_range: tuple[float, float] | None,
+) -> None:
+    """Apply axis limits to existing thermo canvases and redraw them."""
+
+    for canvas in canvases:
+        for axis in canvas.figure.axes:
+            if step_range is None:
+                axis.set_autoscalex_on(True)
+                axis.autoscale_view(scalex=True, scaley=False)
+            else:
+                axis.set_xlim(step_range)
+            if y_range is None:
+                axis.set_autoscaley_on(True)
+                axis.autoscale_view(scalex=False, scaley=True)
+            else:
+                axis.set_ylim(y_range)
+        canvas.draw_idle()
 
 
 class ThermoTabMixin:
@@ -115,16 +141,12 @@ class ThermoTabMixin:
         self.thermo_average_labels = tk.StringVar()
         ttk.Entry(controls, textvariable=self.thermo_average_labels).pack(fill="x", pady=(0, 12))
 
-        available = sorted(
-            {
-                column
-                for simulation in self.project.simulations
-                if simulation.thermo_df is not None
-                for column in simulation.thermo_df.columns
-                if column != "Step"
-            }
+        values = ordered_thermo_parameters(
+            column
+            for simulation in self.project.simulations
+            if simulation.thermo_df is not None
+            for column in simulation.thermo_df.columns
         )
-        values = [value for value in THERMO_DEFAULTS if value in available] or available
         self.thermo_parameter = tk.StringVar(value=values[0] if values else "")
         ttk.Label(controls, text="Parameter").pack(anchor="w")
         self.thermo_parameter_combo = ttk.Combobox(
@@ -212,6 +234,14 @@ class ThermoTabMixin:
 
         self._update_thermo_step_controls(preserve=False)
         self._update_thermo_y_controls(preserve=False)
+        self._thermo_axis_update_job: str | None = None
+        for range_var in (
+            self.thermo_step_min,
+            self.thermo_step_max,
+            self.thermo_y_min,
+            self.thermo_y_max,
+        ):
+            range_var.trace_add("write", self._schedule_thermo_axis_update)
         ttk.Button(controls, text="Plot", command=self._plot_thermo).pack(fill="x")
         ttk.Button(controls, text="Export PNGs", command=self._save_thermo_plots).pack(fill="x", pady=(8, 0))
 
@@ -293,6 +323,37 @@ class ThermoTabMixin:
         if not minimum or not maximum:
             raise ValueError("Enter both y-axis minimum and maximum, or reset to the full y range.")
         return tuple(sorted((float(minimum), float(maximum))))
+
+    def _schedule_thermo_axis_update(self, *_trace_args) -> None:
+        """Debounce live axis updates while the user edits a range."""
+
+        if self._closed:
+            return
+        if self._thermo_axis_update_job is not None:
+            self.root.after_cancel(self._thermo_axis_update_job)
+        self._thermo_axis_update_job = self.root.after(250, self._apply_thermo_axis_ranges)
+
+    def _apply_thermo_axis_ranges(self) -> None:
+        """Apply valid range entries to all currently displayed thermo plots."""
+
+        self._thermo_axis_update_job = None
+        try:
+            step_range = self._thermo_step_range()
+            y_range = self._thermo_y_range()
+        except ValueError:
+            return
+        apply_thermo_axis_ranges(self._thermo_canvases, step_range, y_range)
+
+    def _close_thermo_axis_update(self) -> None:
+        """Cancel a pending live thermo-axis update during GUI shutdown."""
+
+        if self._thermo_axis_update_job is None:
+            return
+        try:
+            self.root.after_cancel(self._thermo_axis_update_job)
+        except tk.TclError:
+            pass
+        self._thermo_axis_update_job = None
 
     def _thermo_running_average_points(self) -> int | None:
         """Return the running-average window size for the first thermo plot."""

@@ -11,6 +11,7 @@ from lammpalyze.parsers import (
     eval_species,
     eval_thermo,
     iter_lammpstrj_frames,
+    parse_traj,
     parse_bond_observations,
     parse_bonds,
 )
@@ -75,6 +76,57 @@ def test_eval_thermo_extracts_table(tmp_path: Path):
 
     assert frame["Step"].tolist() == [0.0, 1.0]
     assert frame["Temp"].tolist() == [300.0, 301.0]
+
+
+def test_eval_thermo_collects_multiple_run_tables_and_skips_warnings(tmp_path: Path):
+    """Continue parsing after LAMMPS loop footers and ignore warning text."""
+
+    thermo_file = tmp_path / "thermo.log"
+    thermo_file.write_text(
+        """
+        run 10
+        Step Temp PotEng
+        0 300 -10
+        WARNING: not numeric
+        10 301 -11
+        Loop time of 1 on 1 procs
+        run 20
+        Step Temp PotEng
+        20 302 -12
+        30 303 -13
+        Loop time of 1 on 1 procs
+        """,
+        encoding="utf-8",
+    )
+
+    _, frame = eval_thermo(thermo_file)
+
+    assert frame["Step"].tolist() == [0.0, 10.0, 20.0, 30.0]
+    assert frame["Temp"].tolist() == [300.0, 301.0, 302.0, 303.0]
+    assert frame["PotEng"].tolist() == [-10.0, -11.0, -12.0, -13.0]
+
+
+def test_eval_thermo_ignores_later_tables_with_different_columns(tmp_path: Path):
+    """Keep one coherent thermo time series when logs include rerun tables."""
+
+    thermo_file = tmp_path / "thermo.log"
+    thermo_file.write_text(
+        """
+        Step Temp
+        0 300
+        Loop time of 1 on 1 procs
+        Step Press E_pair
+        10 5 -7
+        Loop time of 1 on 1 procs
+        """,
+        encoding="utf-8",
+    )
+
+    _, frame = eval_thermo(thermo_file)
+
+    assert frame.columns.tolist() == ["Step", "Temp"]
+    assert frame["Step"].tolist() == [0.0]
+    assert frame["Temp"].tolist() == [300.0]
 
 
 def test_eval_msd_preserves_computed_column_names(tmp_path: Path):
@@ -179,6 +231,30 @@ ITEM: ATOMS id type q xu yu zu
     assert frames[0].atoms[0].atom_id == 2
     assert frames[0].atoms[0].atom_type == 3
     assert (frames[0].atoms[0].x, frames[0].atoms[0].y, frames[0].atoms[0].z) == (4.0, 5.0, 6.0)
+
+
+def test_parse_traj_accepts_reordered_wrapped_columns(tmp_path: Path):
+    """Build legacy arrays from flexible atom tables without requiring xu."""
+
+    trajectory = tmp_path / "traj.lammpstrj"
+    trajectory.write_text(
+        """ITEM: TIMESTEP
+0
+ITEM: NUMBER OF ATOMS
+1
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ATOMS z id q y type x fx
+13 1 -0.2 -1 2 11 4.5
+""",
+        encoding="utf-8",
+    )
+
+    frame = next(parse_traj(trajectory))
+
+    assert frame.tolist() == [[-0.2, 1.0, 9.0, 3.0]]
 
 
 def test_copy_lammpstrj_until_preserves_raw_frames(tmp_path: Path):

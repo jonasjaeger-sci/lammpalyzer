@@ -11,42 +11,28 @@ from lammpalyze.parsers.models import TrajectoryAtom, TrajectoryFrame
 
 
 def parse_traj(filename: str | Path) -> Iterator[np.ndarray]:
-    """Yield wrapped ``[q, x, y, z]`` atom arrays from a LAMMPS trajectory."""
+    """Yield wrapped ``[q, x, y, z]`` arrays from flexible atom tables.
 
-    with Path(filename).open(encoding="utf-8") as handle:
-        n_atoms = 0
-        min_coords = np.zeros(3)
-        box_lengths = np.ones(3)
-        while True:
-            line = handle.readline()
-            if not line:
-                break
+    Missing charge values are represented by ``NaN``. Coordinate columns may
+    be wrapped, unwrapped, or scaled coordinates in any table position.
+    """
 
-            if "NUMBER" in line:
-                n_atoms = int(handle.readline())
-
-            if "ITEM: BOX BOUNDS" in line:
-                bounds = np.array([[float(x) for x in handle.readline().split()] for _ in range(3)])
-                min_coords = bounds[:, 0]
-                box_lengths = bounds[:, 1] - bounds[:, 0]
-
-            if "ITEM: ATOMS" in line:
-                cols = line.split()[2:]
-                frame_data = []
-                for _ in range(n_atoms):
-                    atom_line = handle.readline().split()
-                    frame_data.append(
-                        [
-                            float(atom_line[cols.index("q")]),
-                            float(atom_line[cols.index("xu")]),
-                            float(atom_line[cols.index("yu")]),
-                            float(atom_line[cols.index("zu")]),
-                        ]
-                    )
-                unwrapped = np.array(frame_data)
-                wrapped = unwrapped.copy()
-                wrapped[:, 1:] = min_coords + (unwrapped[:, 1:] - min_coords) % box_lengths
-                yield wrapped
+    for frame in iter_lammpstrj_frames(filename):
+        coordinates = np.array(
+            [
+                [atom.x, atom.y, atom.z]
+                for atom in frame.atoms
+            ],
+            dtype=float,
+        )
+        minimum = frame.bounds[:, 0]
+        box_lengths = frame.bounds[:, 1] - minimum
+        wrapped = minimum + (coordinates - minimum) % box_lengths
+        charges = np.array(
+            [atom.values.get("q", np.nan) for atom in frame.atoms],
+            dtype=float,
+        )
+        yield np.column_stack((charges, wrapped))
 
 
 def list_lammpstrj_timesteps(filename: str | Path) -> list[int]:
@@ -69,6 +55,16 @@ def list_lammpstrj_timesteps(filename: str | Path) -> list[int]:
                 for _ in range(n_atoms):
                     handle.readline()
     return timesteps
+
+
+def trajectory_atom_columns(filename: str | Path) -> list[str]:
+    """Return the columns declared by the first trajectory atom table."""
+
+    with Path(filename).open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith("ITEM: ATOMS"):
+                return line.split()[2:]
+    raise ValueError(f"No ITEM: ATOMS table found in trajectory file {filename}")
 
 
 def copy_lammpstrj_until(
@@ -216,6 +212,10 @@ def _trajectory_atom_from_values(
 ) -> TrajectoryAtom:
     """Build a trajectory atom from one LAMMPS atom-table row."""
 
+    if len(values) < len(columns):
+        raise ValueError(
+            f"Trajectory atom row has {len(values)} values for {len(columns)} columns."
+        )
     column_index = {column: index for index, column in enumerate(columns)}
     x_column = _first_available_column(column_index, ("xu", "x", "xs"))
     y_column = _first_available_column(column_index, ("yu", "y", "ys"))
@@ -229,12 +229,21 @@ def _trajectory_atom_from_values(
     )
     if bounds is not None and (x_column, y_column, z_column) == ("xs", "ys", "zs"):
         coordinates = bounds[:, 0] + coordinates * (bounds[:, 1] - bounds[:, 0])
+    numeric_values = {}
+    for column, index in column_index.items():
+        try:
+            numeric_values[column] = float(values[index])
+        except ValueError:
+            continue
+    element_index = column_index.get("element")
     return TrajectoryAtom(
         atom_id=int(float(values[column_index["id"]])),
         atom_type=int(float(values[column_index.get("type", column_index["id"])])),
         x=float(coordinates[0]),
         y=float(coordinates[1]),
         z=float(coordinates[2]),
+        element=values[element_index] if element_index is not None else None,
+        values=numeric_values,
     )
 
 

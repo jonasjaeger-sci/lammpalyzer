@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -16,6 +16,8 @@ class TrajectoryAtom:
     x: float
     y: float
     z: float
+    element: str | None = None
+    values: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

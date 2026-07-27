@@ -52,7 +52,7 @@ class LammpalyzeGUI(
         self._species_canvases: list[FigureCanvasTkAgg] = []
         self._thermo_canvases: list[FigureCanvasTkAgg] = []
         self._rdf_canvases: list[FigureCanvasTkAgg] = []
-        self._charge_canvas: FigureCanvasTkAgg | None = None
+        self._charge_canvases: list[FigureCanvasTkAgg] = []
         self._pairwise_canvas: FigureCanvasTkAgg | None = None
         self._geometry_canvas: FigureCanvasTkAgg | None = None
         self._msd_canvases: list[FigureCanvasTkAgg] = []
@@ -112,7 +112,7 @@ class LammpalyzeGUI(
         tabs.add(msd_tab, text="Mean-square displacement")
         tabs.add(rdf_tab, text="Radial distribution")
         tabs.add(structure_tab, text="Structural relaxation")
-        tabs.add(charge_tab, text="Atomic charges")
+        tabs.add(charge_tab, text="Atomic data")
         tabs.add(smiles_tab, text="Molecule visualization")
         tabs.add(reaction_table_tab, text="Reaction paths")
         tabs.add(connected_pathways_tab, text="Connected pathways")
@@ -137,6 +137,8 @@ class LammpalyzeGUI(
         if self._closed:
             return
         self._closed = True
+        self._close_atomic_plot_worker()
+        self._close_thermo_axis_update()
 
         for canvas in self._species_canvases:
             self._destroy_canvas(canvas)
@@ -150,9 +152,9 @@ class LammpalyzeGUI(
             self._destroy_canvas(canvas)
         self._structure_canvases = []
 
-        if self._charge_canvas is not None:
-            self._destroy_canvas(self._charge_canvas)
-            self._charge_canvas = None
+        for canvas in self._charge_canvases:
+            self._destroy_canvas(canvas)
+        self._charge_canvases = []
 
         if self._pairwise_canvas is not None:
             self._destroy_canvas(self._pairwise_canvas)

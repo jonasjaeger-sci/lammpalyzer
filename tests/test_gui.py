@@ -13,12 +13,14 @@ from lammpalyze.gui import (
 from lammpalyze.gui.helpers import (
     image_output_path,
     molecule_observation_summary,
+    ordered_thermo_parameters,
     parse_reference_lines,
     parse_simulation_groups,
     parse_timestep_values,
     suffixed_image_output_path,
 )
 from lammpalyze.gui.canvas import _format_hover_value, _nearest_line_point
+from lammpalyze.gui.thermo_tab import apply_thermo_axis_ranges
 from lammpalyze.parsers import ComponentProperties
 from lammpalyze.reactions import ReactionPath
 
@@ -29,6 +31,53 @@ def test_molecule_render_size_follows_available_area():
     assert molecule_render_size(900, 700) == (876, 676)
     assert molecule_render_size(1, 1) == (720, 520)
     assert molecule_render_size(3000, 2200) == (1800, 1400)
+
+
+def test_ordered_thermo_parameters_keeps_nondefault_columns():
+    """Keep every thermo field while placing common choices first."""
+
+    columns = ["Step", "Atoms", "E_coul", "Temp", "E_vdwl", "TotEng"]
+
+    assert ordered_thermo_parameters(columns) == [
+        "Temp",
+        "Atoms",
+        "E_coul",
+        "E_vdwl",
+        "TotEng",
+    ]
+
+
+def test_apply_thermo_axis_ranges_redraws_existing_figures():
+    """Update both axes and request a redraw without rebuilding thermo plots."""
+
+    figure, axis = plt.subplots()
+    axis.plot([0, 10], [200, 400])
+    redraws = []
+    figure.canvas.draw_idle = lambda: redraws.append(True)
+
+    apply_thermo_axis_ranges([figure.canvas], (2, 8), (250, 350))
+
+    assert axis.get_xlim() == (2.0, 8.0)
+    assert axis.get_ylim() == (250.0, 350.0)
+    assert redraws == [True]
+    plt.close(figure)
+
+
+def test_apply_thermo_axis_ranges_restores_automatic_limits():
+    """Restore data-driven limits when optional ranges are cleared."""
+
+    figure, axis = plt.subplots()
+    axis.plot([0, 10], [200, 400])
+    axis.set_xlim(2, 8)
+    axis.set_ylim(250, 350)
+
+    apply_thermo_axis_ranges([figure.canvas], None, None)
+
+    assert axis.get_xlim()[0] < 0
+    assert axis.get_xlim()[1] > 10
+    assert axis.get_ylim()[0] < 200
+    assert axis.get_ylim()[1] > 400
+    plt.close(figure)
 
 
 def test_reaction_path_table_data_counts_paths_per_simulation():

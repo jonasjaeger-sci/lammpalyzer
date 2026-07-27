@@ -49,6 +49,14 @@ LEGEND_PLACEMENTS = [
 REFERENCE_LINE_SPLIT_PATTERN = re.compile(r"[\s,;]+")
 
 
+def ordered_thermo_parameters(columns) -> list[str]:
+    """Put common thermo fields first without hiding other parsed columns."""
+
+    available = {column for column in columns if column != "Step"}
+    preferred = [column for column in THERMO_DEFAULTS if column in available]
+    return preferred + sorted(available - set(preferred))
+
+
 def molecule_render_size(container_width: int, container_height: int) -> tuple[int, int]:
     """Return a molecule image size that follows the available GUI area."""
 

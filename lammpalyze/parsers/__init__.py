@@ -35,6 +35,7 @@ from lammpalyze.parsers.trajectory import (
     list_lammpstrj_timesteps,
     parse_traj,
     read_lammpstrj_frame,
+    trajectory_atom_columns,
 )
 
 __all__ = [
@@ -66,4 +67,5 @@ __all__ = [
     "parse_traj",
     "read_lammpstrj_frame",
     "read_reax_bonds_frame",
+    "trajectory_atom_columns",
 ]

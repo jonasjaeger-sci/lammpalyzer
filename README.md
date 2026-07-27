@@ -186,7 +186,7 @@ Filtering is applied during project loading and has no separate GUI control.
 Reload lammpalyze after changing these keywords. Its effects appear in
 `Reaction paths`, `Connected pathways`, `Reaction visualization`, exported
 `paths.csv`, and the structures available in `Molecule visualization`. It does
-not alter species-file, thermodynamic, RDF, or per-element atomic-charge data.
+not alter species-file, thermodynamic, RDF, or trajectory-backed atomic data.
 
 ### Structure Quality Modes and Partial Charges
 
@@ -232,11 +232,10 @@ normal tracking without registering a bridged reaction. Bridged occurrences use
 the clean endpoint timesteps in reaction tables and visualization.
 
 The molecule tab summarizes component-charge ranges, ion-candidate counts, and
-suspicious-observation counts for a selected SMILES. The `Atomic charges` tab
-plots each element's mean atomic partial charge at every bond-file timestep with
-a population-standard-deviation band, error bars, or no uncertainty display.
-Partial charges remain continuous ReaxFF values and are not rounded into formal
-SMILES charges.
+suspicious-observation counts for a selected SMILES. The `Atomic data` tab reads
+charge and other optional scalar values from trajectory `ITEM: ATOMS` tables;
+it therefore works without a ReaxFF bond file. Partial charges remain continuous
+ReaxFF values and are not rounded into formal SMILES charges.
 
 The `Pairwise data` tab reads LAMMPS local dumps whose `ITEM: ENTRIES` table
 contains a local index, two particle IDs, and one or more numeric data columns.
@@ -331,7 +330,8 @@ The GUI contains tabs for common analysis tasks:
 
 - `Species analysis`: plot selected species counts over time.
 - `Thermodynamic data`: plot selected thermodynamic parameters, choose
-  simulations, edit legend labels, and adjust x/y axis ranges.
+  simulations, edit legend labels, and adjust x/y axis ranges. Existing plots
+  update automatically when either range is edited or reset.
 - `Radial distribution`: calculate RDF curves for selected element pairs such as
   `Li-Li` or `Li-O`, with selectable simulations, timestep range, bin width,
   optional point-based running averages, and a second cross-simulation mean and
@@ -343,9 +343,17 @@ The GUI contains tabs for common analysis tasks:
   or more simulations, all atoms or one element, the production start timestep,
   number of frames, number of time origins, maximum q-vector integer index, and
   number of uncertainty blocks.
-- `Atomic charges`: plot per-element mean ReaxFF partial charges over time with
-  population-standard-deviation bands or error bars, selecting simulations,
-  elements, uncertainty style, timestep range, and plot background.
+- `Atomic data`: stream flexible `ITEM: ATOMS` trajectory fields and plot a
+  selected property by element or by atom ID. Charge (`q`), force components
+  (`fx`, `fy`, `fz`), and velocity components (`vx`, `vy`, `vz`) are available
+  when present. Complete component sets also provide force magnitude `f` and
+  velocity magnitude `v`. Element plots support population-standard-deviation
+  bands or error bars. The optional `Plot individual atoms` setting adds a
+  second figure for selections of up to 200 atoms; broader selections report a
+  clear error instead of overloading the plot. Atom-ID plots show one line per
+  explicitly selected atom. Atom IDs accept comma/space-separated values and
+  inclusive ranges such as `1, 4-8`. A progress indicator remains visible while
+  large trajectory files are read in the background.
 - `Molecule visualization`: render one or all observed SMILES structures for a
   formula and summarize component charges, ion candidates, and quality flags.
 - `Reaction paths`: view total and per-simulation reaction path counts, then copy
@@ -480,7 +488,7 @@ lammpalyze/
   plotting.py     Matplotlib plotting helpers
   parsers/        species, thermo, computed-data, bond, and trajectory readers
   gui/            Tkinter GUI tabs and application shell
-    charge_tab.py atomic partial-charge plotting tab
+    charge_tab.py trajectory-backed atomic-data plotting tab
     computed_tabs.py pairwise-data and mean-square-displacement tabs
     geometry_tab.py trajectory distance-and-angle tab
     structure_tab.py structural-relaxation tab

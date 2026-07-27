@@ -9,6 +9,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from lammpalyze.analysis import LoadedSimulation, aggregate_thermo
+from lammpalyze.atomic import (
+    AtomicSeries,
+    atomic_property_label,
+    collect_atomic_series,
+    collect_element_atomic_series,
+)
 
 ReferenceLines = tuple[list[float], list[float]]
 LEGEND_LOCATIONS = {
@@ -85,6 +91,8 @@ THERMO_UNITS = {
     "PotEng": "kcal/mol",
     "KinEng": "kcal/mol",
     "TotEng": "kcal/mol",
+    "E_vdwl": "kcal/mol",
+    "E_coul": "kcal/mol",
     "Temp": "K",
     "Press": "atm",
     "Vol": "A³",
@@ -288,6 +296,201 @@ def plot_charge_evolution(
     _style_axes(ax, "Atomic partial charges", "Mean partial charge [e]", style, x_label="Timestep")
     _apply_step_range(ax, step_range)
     legend = ax.legend(frameon=False, fontsize="small")
+    for text in legend.get_texts():
+        text.set_color(style["text"])
+    fig.tight_layout()
+    return fig
+
+
+def plot_atomic_data(
+    simulations: list[LoadedSimulation],
+    property_name: str,
+    *,
+    elements: list[str] | None = None,
+    atom_ids: list[int] | None = None,
+    uncertainty: str = "band",
+    step_range: tuple[float, float] | None = None,
+    theme: str = "dark",
+):
+    """Plot a trajectory atom property by element or individual atom ID."""
+
+    if uncertainty not in {"band", "errorbar", "none"}:
+        raise ValueError("uncertainty must be 'band', 'errorbar', or 'none'.")
+    series = collect_atomic_series(
+        simulations,
+        property_name,
+        elements=elements,
+        atom_ids=atom_ids,
+        step_range=step_range,
+    )
+    property_label = atomic_property_label(property_name)
+    return _plot_atomic_series(
+        series,
+        property_label,
+        property_label,
+        uncertainty=uncertainty,
+        show_uncertainty=bool(elements),
+        step_range=step_range,
+        theme=theme,
+    )
+
+
+def plot_atomic_data_figures(
+    simulations: list[LoadedSimulation],
+    property_name: str,
+    *,
+    elements: list[str] | None = None,
+    atom_ids: list[int] | None = None,
+    include_individual_element_atoms: bool = False,
+    max_individual_element_atoms: int | None = 200,
+    uncertainty: str = "band",
+    step_range: tuple[float, float] | None = None,
+    theme: str = "dark",
+) -> list:
+    """Create aggregate and optional per-element-atom figures."""
+
+    if not elements or not include_individual_element_atoms:
+        return [
+            plot_atomic_data(
+                simulations,
+                property_name,
+                elements=elements,
+                atom_ids=atom_ids,
+                uncertainty=uncertainty,
+                step_range=step_range,
+                theme=theme,
+            )
+        ]
+    if uncertainty not in {"band", "errorbar", "none"}:
+        raise ValueError("uncertainty must be 'band', 'errorbar', or 'none'.")
+
+    series = collect_element_atomic_series(
+        simulations,
+        property_name,
+        elements,
+        step_range=step_range,
+        max_individual_series=max_individual_element_atoms,
+    )
+    property_label = atomic_property_label(property_name)
+    element_label = ", ".join(elements)
+    return [
+        _plot_atomic_series(
+            series.aggregate,
+            property_label,
+            property_label,
+            uncertainty=uncertainty,
+            show_uncertainty=True,
+            step_range=step_range,
+            theme=theme,
+        ),
+        _plot_atomic_series(
+            series.individual,
+            f"Individual {element_label} atoms: {property_label}",
+            property_label,
+            uncertainty="none",
+            show_uncertainty=False,
+            step_range=step_range,
+            theme=theme,
+            individual_legend=True,
+        ),
+    ]
+
+
+def plot_collected_atomic_series(
+    series: list[AtomicSeries],
+    property_name: str,
+    *,
+    uncertainty: str = "band",
+    show_uncertainty: bool = True,
+    step_range: tuple[float, float] | None = None,
+    theme: str = "dark",
+    title: str | None = None,
+    individual_legend: bool = False,
+):
+    """Plot already-collected trajectory atom series."""
+
+    property_label = atomic_property_label(property_name)
+    return _plot_atomic_series(
+        series,
+        title or property_label,
+        property_label,
+        uncertainty=uncertainty,
+        show_uncertainty=show_uncertainty,
+        step_range=step_range,
+        theme=theme,
+        individual_legend=individual_legend,
+    )
+
+
+def _plot_atomic_series(
+    series: list[AtomicSeries],
+    title: str,
+    y_label: str,
+    *,
+    uncertainty: str,
+    show_uncertainty: bool,
+    step_range: tuple[float, float] | None,
+    theme: str,
+    individual_legend: bool = False,
+):
+    """Render already-collected atomic series without rereading a trajectory."""
+
+    style = _theme_colors(theme)
+    fig, ax = plt.subplots(figsize=(9.0, 5.2), facecolor=style["figure"])
+    color_cycle = cycle(CHARGE_LINE_COLORS)
+    for observation in series:
+        color = next(color_cycle)
+        if uncertainty == "errorbar" and show_uncertainty:
+            ax.errorbar(
+                observation.timesteps,
+                observation.means,
+                yerr=observation.deviations,
+                label=observation.label,
+                color=color,
+                linewidth=1.8,
+                capsize=2,
+            )
+        else:
+            ax.plot(
+                observation.timesteps,
+                observation.means,
+                label=observation.label,
+                color=color,
+                linewidth=2.0,
+            )
+            if uncertainty == "band" and show_uncertainty:
+                lower = [
+                    mean - deviation
+                    for mean, deviation in zip(
+                        observation.means,
+                        observation.deviations,
+                        strict=False,
+                    )
+                ]
+                upper = [
+                    mean + deviation
+                    for mean, deviation in zip(
+                        observation.means,
+                        observation.deviations,
+                        strict=False,
+                    )
+                ]
+                ax.fill_between(
+                    observation.timesteps,
+                    lower,
+                    upper,
+                    color=color,
+                    alpha=0.18,
+                )
+
+    _style_axes(ax, title, y_label, style, x_label="Timestep")
+    _apply_step_range(ax, step_range)
+    legend_options = {"frameon": False, "fontsize": "small"}
+    if individual_legend:
+        legend_options.update(
+            {"bbox_to_anchor": (1.02, 1.0), "loc": "upper left", "fontsize": "x-small"}
+        )
+    legend = ax.legend(**legend_options)
     for text in legend.get_texts():
         text.set_color(style["text"])
     fig.tight_layout()
