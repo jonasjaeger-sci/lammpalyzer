@@ -27,6 +27,8 @@ lint = [
 
 [project.scripts]
 lammpalyze = "lammpalyze.cli:main"
+pieceoftraj = "lammpalyze.chop:pieceoftraj_main"
+chopthermo = "lammpalyze.chop:chopthermo_main"
 
 [tool.setuptools.packages.find]
 include = ["lammpalyze*"]

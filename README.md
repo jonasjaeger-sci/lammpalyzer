@@ -324,6 +324,21 @@ The validator reports missing files, likely suffix/index mismatches, atom types
 not covered by `element_list`, and trajectory atom columns that lammpalyze cannot
 read.
 
+Large trajectory and thermo files can be sliced before analysis with the
+streaming range tools:
+
+```bash
+# Extract complete dump frames from timestep 124770 through 125500
+pieceoftraj -i file.traj -s 124770 -e 125500
+
+# Extract thermo rows whose first column is in the same timestep range
+chopthermo -i file.log -s 124770 -e 125500
+```
+
+If `-o/--output` is omitted, the output is written beside the input as
+`file_124770_125500.traj` or `file_124770_125500.log`. Trajectory frame headers
+and thermo table headers are preserved when present.
+
 ## GUI Overview
 
 The GUI contains tabs for common analysis tasks:
