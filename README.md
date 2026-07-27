@@ -376,6 +376,10 @@ The GUI contains tabs for common analysis tasks:
 - `Connected pathways`: view connected reaction states by pathway depth in
   chemical formula or SMILES notation, filter by minimum occurrence count, and
   export the visible pathway table as CSV.
+- `Pathway graph`: inspect a selected connected pathway as a scrollable,
+  top-down reaction graph in formula or SMILES notation. State snapshots are
+  rendered in the background with visible progress, using OVITO's Python
+  renderer when available and a built-in Matplotlib fallback otherwise.
 - `Reaction visualization`: open the first occurrence of a selected reaction in
   OVITO, if OVITO is installed.
 
@@ -506,6 +510,8 @@ lammpalyze/
     charge_tab.py trajectory-backed atomic-data plotting tab
     computed_tabs.py pairwise-data and mean-square-displacement tabs
     geometry_tab.py trajectory distance-and-angle tab
+    pathway_graph.py connected-pathway graph data and layout helpers
+    pathway_graph_tab.py pathway graph controls and background rendering
     structure_tab.py structural-relaxation tab
   smiles.py       SMILES utilities and molecule rendering
   ovito.py        OVITO scene generation

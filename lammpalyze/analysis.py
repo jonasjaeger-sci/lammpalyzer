@@ -23,10 +23,13 @@ from lammpalyze.parsers import (
 )
 from lammpalyze.reactions import (
     ConnectedReactionPathway,
+    ConnectedReactionOccurrence,
+    ConnectedReactionStep,
     ReactionOccurrence,
     ReactionPath,
     build_connected_reaction_pathways,
     build_reaction_path_table,
+    find_connected_reaction_occurrence,
     find_reaction_occurrences,
 )
 
@@ -143,6 +146,25 @@ class LammpalyzeProject:
             ):
                 occurrences_by_reaction.setdefault(occurrence.reaction, (simulation, occurrence))
         return occurrences_by_reaction
+
+    def first_connected_reaction_occurrence(
+        self,
+        step: ConnectedReactionStep,
+        notation: str = "formula",
+    ) -> tuple[LoadedSimulation, ConnectedReactionOccurrence]:
+        """Find a concrete event matching one displayed connected pathway step."""
+
+        simulation_indexes = set(step.simulations)
+        for simulation in self.simulations:
+            if simulation_indexes and simulation.index not in simulation_indexes:
+                continue
+            occurrence = find_connected_reaction_occurrence(simulation, step, notation=notation)
+            if occurrence is not None:
+                return simulation, occurrence
+        raise ValueError(
+            f"No occurrence found for connected pathway {step.label}: "
+            f"{step.source} {step.arrow} {step.target}"
+        )
 
     def simulation(self, index: int) -> LoadedSimulation:
         """Look up one loaded simulation by the index used in ``lmplyz.inp``."""

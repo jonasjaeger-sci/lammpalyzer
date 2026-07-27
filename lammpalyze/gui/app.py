@@ -14,6 +14,7 @@ from lammpalyze.gui.charge_tab import ChargeTabMixin
 from lammpalyze.gui.computed_tabs import ComputedDataTabMixin
 from lammpalyze.gui.geometry_tab import GeometryTabMixin
 from lammpalyze.gui.molecule_tab import MoleculeTabMixin
+from lammpalyze.gui.pathway_graph_tab import PathwayGraphTabMixin
 from lammpalyze.gui.rdf_tab import RdfTabMixin
 from lammpalyze.gui.reactions_tab import ReactionTabMixin
 from lammpalyze.gui.species_tab import SpeciesTabMixin
@@ -32,6 +33,7 @@ class LammpalyzeGUI(
     RdfTabMixin,
     StructuralRelaxationTabMixin,
     MoleculeTabMixin,
+    PathwayGraphTabMixin,
     ReactionTabMixin,
     CanvasMixin,
 ):
@@ -104,6 +106,7 @@ class LammpalyzeGUI(
         smiles_tab = ttk.Frame(tabs)
         reaction_table_tab = ttk.Frame(tabs)
         connected_pathways_tab = ttk.Frame(tabs)
+        pathway_graph_tab = ttk.Frame(tabs)
         reaction_tab = ttk.Frame(tabs)
         tabs.add(species_tab, text="Species analysis")
         tabs.add(thermo_tab, text="Thermodynamic data")
@@ -116,6 +119,7 @@ class LammpalyzeGUI(
         tabs.add(smiles_tab, text="Molecule visualization")
         tabs.add(reaction_table_tab, text="Reaction paths")
         tabs.add(connected_pathways_tab, text="Connected pathways")
+        tabs.add(pathway_graph_tab, text="Pathway graph")
         tabs.add(reaction_tab, text="Reaction visualization")
 
         self._build_species_tab(species_tab)
@@ -129,6 +133,7 @@ class LammpalyzeGUI(
         self._build_smiles_tab(smiles_tab)
         self._build_reaction_table_tab(reaction_table_tab)
         self._build_connected_pathways_tab(connected_pathways_tab)
+        self._build_pathway_graph_tab(pathway_graph_tab)
         self._build_reaction_tab(reaction_tab)
 
     def close(self) -> None:
@@ -139,6 +144,7 @@ class LammpalyzeGUI(
         self._closed = True
         self._close_atomic_plot_worker()
         self._close_thermo_axis_update()
+        self._close_pathway_graph_tab()
 
         for canvas in self._species_canvases:
             self._destroy_canvas(canvas)

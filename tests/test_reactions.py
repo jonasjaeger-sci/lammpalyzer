@@ -7,6 +7,7 @@ from lammpalyze.config import parse_input_file
 from lammpalyze.reactions import (
     build_connected_reaction_pathways,
     count_reaction_paths,
+    find_connected_reaction_occurrence,
     find_reaction_occurrences,
     format_connected_reaction_pathways,
 )
@@ -360,3 +361,26 @@ def test_connected_pathway_parents_match_displayed_reactants_in_example():
 
     assert "A" not in step.parents
     assert step.parents == ("C",)
+
+
+def test_find_connected_reaction_occurrence_matches_formula_step():
+    """Map a formula pathway step back to the concrete SMILES event."""
+
+    simulation = LoadedSimulation(
+        index=3,
+        smiles={0: ["raw"], 1: ["[Li]", "O=C1"], 2: ["[Li]O=C1"]},
+        smiles_id={0: [["1", "2"]], 1: [["1"], ["2"]], 2: [["1", "2"]]},
+        chem_formulas={0: ["raw"], 1: ["Li", "C3H4O3"], 2: ["LiC3H4O3"]},
+    )
+    pathway = build_connected_reaction_pathways([simulation], notation="formula")[0]
+
+    connected_occurrence = find_connected_reaction_occurrence(
+        simulation,
+        pathway.steps[0],
+        notation="formula",
+    )
+
+    assert connected_occurrence is not None
+    assert connected_occurrence.matched_direction == "forward"
+    assert connected_occurrence.occurrence.reaction == "['O=C1', '[Li]'] -> ['[Li]O=C1']"
+    assert connected_occurrence.occurrence.reactant_atom_ids == ["1", "2"]

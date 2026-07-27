@@ -19,6 +19,7 @@ from lammpalyze.gui.helpers import (
     parse_timestep_values,
     suffixed_image_output_path,
 )
+from lammpalyze.gui.pathway_graph import build_pathway_graph, pathway_graph_choices, pathway_graph_image_extent
 from lammpalyze.gui.canvas import _format_hover_value, _nearest_line_point
 from lammpalyze.gui.thermo_tab import apply_thermo_axis_ranges
 from lammpalyze.parsers import ComponentProperties
@@ -146,6 +147,75 @@ def test_connected_reaction_pathway_data_uses_formula_notation():
     assert pathways[0].steps[0].counts_by_simulation == ((1, 1),)
 
     assert not connected_reaction_pathway_data(simulations, notation="formula", min_count=2)
+
+
+def test_pathway_graph_builds_selected_branch_top_down():
+    """Represent a selected connected pathway as state nodes and reaction arrows."""
+
+    simulations = [
+        LoadedSimulation(
+            index=1,
+            smiles={
+                0: ["raw"],
+                1: ["A", "D"],
+                2: ["B", "C", "D"],
+                3: ["B", "E"],
+            },
+            smiles_id={
+                0: [["1", "2", "3"]],
+                1: [["1", "2"], ["3"]],
+                2: [["1"], ["2"], ["3"]],
+                3: [["1"], ["2", "3"]],
+            },
+            chem_formulas={
+                0: ["raw"],
+                1: ["A", "D"],
+                2: ["B", "C", "D"],
+                3: ["B", "E"],
+            },
+        )
+    ]
+    pathway = connected_reaction_pathway_data(simulations, notation="formula")[0]
+
+    assert pathway_graph_choices(pathway) == [
+        ("A", "A [depth 1]: A -> B + C (n=1)"),
+        ("B", "B [depth 2]: C + D -> E (n=1)"),
+    ]
+
+    graph = build_pathway_graph(pathway, root_label="A")
+
+    assert [(node.label, node.depth) for node in graph.nodes] == [
+        ("A", 0),
+        ("B + C", 1),
+        ("C + D", 1),
+        ("E", 2),
+    ]
+    assert [(edge.source_key, edge.target_key, edge.arrow) for edge in graph.edges] == [
+        ("0:A", "1:B + C", "->"),
+        ("1:C + D", "2:E", "->"),
+    ]
+
+    child_graph = build_pathway_graph(pathway, root_label="B")
+
+    assert [(node.label, node.depth) for node in child_graph.nodes] == [
+        ("C + D", 0),
+        ("E", 1),
+    ]
+    assert [(edge.source_key, edge.target_key, edge.arrow) for edge in child_graph.edges] == [
+        ("0:C + D", "1:E", "->"),
+    ]
+
+
+def test_pathway_graph_image_extent_preserves_snapshot_aspect_ratio():
+    """Fit pathway graph snapshots inside nodes without stretching them."""
+
+    extent = pathway_graph_image_extent(0.0, 0.0, 6.2, 4.0, (700, 980, 4))
+    draw_width = extent[1] - extent[0]
+    draw_height = extent[3] - extent[2]
+
+    assert round(draw_width / draw_height, 6) == round(980 / 700, 6)
+    assert draw_width <= 6.2 * 0.94
+    assert draw_height <= 4.0 * 0.59
 
 
 def test_image_output_path_defaults_to_png():

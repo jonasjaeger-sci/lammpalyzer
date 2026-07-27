@@ -57,6 +57,15 @@ class ConnectedReactionPathway:
     steps: tuple[ConnectedReactionStep, ...]
 
 
+@dataclass(frozen=True)
+class ConnectedReactionOccurrence:
+    """A concrete occurrence matching a displayed connected pathway step."""
+
+    step: ConnectedReactionStep
+    occurrence: ReactionOccurrence
+    matched_direction: str = "forward"
+
+
 @dataclass
 class PathwayEdgeData:
     """Aggregated reaction edges for connected pathway construction."""
@@ -212,6 +221,75 @@ def find_reaction_occurrences(
             return occurrences
 
     return occurrences
+
+
+def find_connected_reaction_occurrence(
+    simulation,
+    step: ConnectedReactionStep,
+    notation: str = "formula",
+) -> ConnectedReactionOccurrence | None:
+    """Return the first concrete event in ``simulation`` matching ``step``.
+
+    Connected pathway rows may be displayed as formulas, while concrete
+    reaction occurrences are stored as SMILES.  This matcher compares the
+    projected source and target states in the selected notation and returns a
+    normal :class:`ReactionOccurrence` carrying the atom ids needed by
+    visualization code.
+    """
+
+    _validate_connected_pathway_options(notation, min_count=1)
+    values_by_time = _pathway_values_by_time(simulation, notation)
+    if values_by_time is None:
+        return None
+    if simulation.smiles is None or simulation.smiles_id is None:
+        return None
+
+    for t1, t2, reaction in _iter_reactions(
+        simulation.smiles,
+        simulation.smiles_id,
+        getattr(simulation, "excluded_components", None),
+        getattr(simulation, "structure_quality_mode", "exclude"),
+    ):
+        source_values = sorted(values_by_time[t1][index] for index in reaction["reactants"])
+        target_values = sorted(values_by_time[t2][index] for index in reaction["products"])
+        if Counter(source_values) == Counter(target_values):
+            continue
+
+        source = _format_state(tuple(source_values))
+        target = _format_state(tuple(target_values))
+        direction = ""
+        if source == step.source and target == step.target:
+            direction = "forward"
+        elif step.arrow == "<->" and source == step.target and target == step.source:
+            direction = "reverse"
+        if not direction:
+            continue
+
+        reactants = sorted(simulation.smiles[t1][index] for index in reaction["reactants"])
+        products = sorted(simulation.smiles[t2][index] for index in reaction["products"])
+        reactant_atom_ids = sorted(
+            {atom_id for index in reaction["reactants"] for atom_id in simulation.smiles_id[t1][index]},
+            key=_atom_sort_key,
+        )
+        product_atom_ids = sorted(
+            {atom_id for index in reaction["products"] for atom_id in simulation.smiles_id[t2][index]},
+            key=_atom_sort_key,
+        )
+        return ConnectedReactionOccurrence(
+            step=step,
+            occurrence=ReactionOccurrence(
+                reaction=_format_reaction(reactants, products),
+                timestep_reactants=t1,
+                timestep_products=t2,
+                reactants=reactants,
+                products=products,
+                reactant_atom_ids=reactant_atom_ids,
+                product_atom_ids=product_atom_ids,
+                simulation_index=getattr(simulation, "index", None),
+            ),
+            matched_direction=direction,
+        )
+    return None
 
 
 def build_reaction_path_table(simulations) -> tuple[list[int], list[ReactionPath], dict[str, dict[int, int]]]:

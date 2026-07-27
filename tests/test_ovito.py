@@ -7,11 +7,14 @@ import pytest
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.ovito import (
     OvitoNotAvailableError,
+    _camera_focus,
     _find_ovito_executable,
     create_reaction_scene,
+    create_reaction_state_snapshot,
     launch_ovito_scene,
     normalize_reaction_path,
 )
+from lammpalyze.parsers import TrajectoryAtom
 from lammpalyze.reactions import ReactionOccurrence
 
 
@@ -99,6 +102,78 @@ ITEM: ATOMS id type q xu yu zu
     info_text = scene.info_file.read_text(encoding="utf-8")
     assert "['AB'] -> ['A', 'B']" in info_text
     assert "Bonds section" in info_text
+
+
+def test_create_reaction_state_snapshot_writes_png_and_ovito_data(tmp_path: Path):
+    """Render one highlighted reactant/product state for graph thumbnails."""
+
+    trajectory = tmp_path / "traj.lammpstrj"
+    trajectory.write_text(
+        """ITEM: TIMESTEP
+0
+ITEM: NUMBER OF ATOMS
+2
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ATOMS id type q xu yu zu
+1 1 0.0 1.0 2.0 3.0
+2 1 0.0 2.0 2.0 3.0
+""",
+        encoding="utf-8",
+    )
+    bond_file = tmp_path / "bonds.reax"
+    bond_file.write_text(
+        """# Timestep 0
+#
+# Number of particles 2
+#
+1 1 1 2 0 1.0 0 0 0
+2 1 1 1 0 1.0 0 0 0
+""",
+        encoding="utf-8",
+    )
+    simulation = LoadedSimulation(index=1, trajectory_path=trajectory, bond_path=bond_file, type_to_element={1: "H"})
+    occurrence = ReactionOccurrence(
+        reaction="['AB'] -> ['A', 'B']",
+        timestep_reactants=0,
+        timestep_products=0,
+        reactants=["AB"],
+        products=["A", "B"],
+        reactant_atom_ids=["1", "2"],
+        product_atom_ids=["1"],
+        simulation_index=1,
+    )
+
+    snapshot = create_reaction_state_snapshot(
+        simulation,
+        occurrence,
+        "reactants",
+        output_dir=tmp_path / "snapshot",
+    )
+
+    assert snapshot.image_file.exists()
+    assert snapshot.data_file.exists()
+    assert snapshot.renderer in {"matplotlib", "ovito-python"}
+    data_text = snapshot.data_file.read_text(encoding="utf-8")
+    assert "2 atoms\n" in data_text
+    assert "Atoms # sphere" in data_text
+    assert "2 1.008000 # H" in data_text
+
+
+def test_camera_focus_keeps_snapshot_zoomed_to_reaction_atoms():
+    """Keep snapshot camera bounds close to the selected reaction atoms."""
+
+    center, radius = _camera_focus(
+        [
+            TrajectoryAtom(atom_id=1, atom_type=1, x=1.0, y=2.0, z=3.0),
+            TrajectoryAtom(atom_id=2, atom_type=1, x=3.0, y=2.0, z=3.0),
+        ]
+    )
+
+    assert center == (2.0, 2.0, 3.0)
+    assert 0.8 < radius < 1.2
 
 
 def test_find_ovito_executable_accepts_mixed_case_env(monkeypatch):
