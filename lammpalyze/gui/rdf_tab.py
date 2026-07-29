@@ -199,6 +199,7 @@ class RdfTabMixin:
                 legend_location=self.rdf_legend_location.get(),
                 theme=self.rdf_theme.get(),
                 gradient_colors=self._rdf_gradient_colors(),
+                plot_settings=self._plot_settings(),
             )
             for canvas in self._rdf_canvases:
                 self._destroy_canvas(canvas)

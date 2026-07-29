@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from lammpalyze.analysis import LoadedSimulation  # noqa: E402
 from lammpalyze.parsers import ChargeStatistics  # noqa: E402
 from lammpalyze.plotting import (  # noqa: E402
+    PlotSettings,
     atom_molecule_membership,
     plot_charge_evolution,
     plot_msd,
@@ -19,6 +20,7 @@ from lammpalyze.plotting import (  # noqa: E402
     plot_rdf,
     plot_species,
     plot_thermo,
+    species_names_for_source,
 )
 from lammpalyze.rdf import RDFResult  # noqa: E402
 
@@ -212,6 +214,59 @@ def test_plot_species_filters_timesteps_and_applies_step_range():
     np.testing.assert_allclose(figures[1].axes[0].lines[0].get_ydata(), [50])
 
 
+def test_plot_species_counts_bond_formulas():
+    """Plot molecule-count series derived from bond-analysis formulas."""
+
+    simulations = [
+        LoadedSimulation(
+            index=1,
+            chem_formulas={
+                0: ["Li", "C2H4O3"],
+                10: ["LiC2H4O3", "LiC2H4O3"],
+                20: ["Li"],
+            },
+        ),
+    ]
+
+    figures = plot_species(
+        simulations,
+        ["Li", "LiC2H4O3"],
+        data_source="formula",
+    )
+
+    species_axis = figures[0].axes[0]
+    assert species_axis.get_title() == "Bond-derived species (formula)"
+    assert [line.get_label() for line in species_axis.lines] == ["R1 Li", "R1 LiC2H4O3"]
+    np.testing.assert_allclose(species_axis.lines[0].get_ydata(), [1, 0, 1])
+    np.testing.assert_allclose(species_axis.lines[1].get_ydata(), [0, 2, 0])
+    np.testing.assert_allclose(figures[1].axes[0].lines[0].get_ydata(), [2, 2, 1])
+
+
+def test_plot_species_counts_bond_smiles_respects_excluded_components():
+    """Skip excluded bond-analysis components when plotting SMILES species."""
+
+    simulation = LoadedSimulation(
+        index=1,
+        smiles={0: ["[Li]", "[Na]"], 10: ["[Li]O"]},
+        excluded_components={0: {1}},
+        structure_quality_mode="exclude",
+    )
+
+    assert species_names_for_source([simulation], "smiles") == ["[Li]", "[Li]O"]
+
+    figures = plot_species(
+        [simulation],
+        ["[Li]", "[Li]O"],
+        data_source="smiles",
+    )
+
+    species_axis = figures[0].axes[0]
+    assert [line.get_label() for line in species_axis.lines] == ["R1 [Li]", "R1 [Li]O"]
+    np.testing.assert_allclose(species_axis.lines[0].get_ydata(), [1, 0])
+    np.testing.assert_allclose(species_axis.lines[1].get_ydata(), [0, 1])
+    np.testing.assert_allclose(figures[1].axes[0].lines[0].get_ydata(), [1, 1])
+
+
 def test_plot_charge_evolution_draws_element_means_and_standard_deviation_band():
     """Plot per-frame charge means and within-element population deviations."""
 
@@ -263,6 +318,126 @@ def test_plot_msd_uses_independent_file_column_selections():
     assert axis.get_legend()._loc == 4
     assert figures[1].axes[0].get_legend()._loc == 4
     np.testing.assert_allclose(figures[1].axes[0].lines[0].get_ydata(), [0.0, 0.85])
+
+
+def test_plot_msd_adds_linear_fit_and_diffusion_coefficient():
+    """Fit selected MSD curves over a timestep window and show D = slope / 6."""
+
+    simulations = [
+        LoadedSimulation(
+            index=1,
+            msd_df=pd.DataFrame(
+                {
+                    "Timestep": [0, 100, 200, 300],
+                    "total": [0.0, 6.0, 12.0, 18.0],
+                }
+            ),
+        ),
+    ]
+
+    figures = plot_msd(
+        simulations,
+        [(1, "total")],
+        fit_range=(100, 300),
+    )
+
+    axis = figures[0].axes[0]
+    assert [line.get_label() for line in axis.lines] == [
+        "MSD1 - total",
+        "MSD1 - total fit (D=0.01 Å²/timestep)",
+    ]
+    np.testing.assert_allclose(axis.lines[1].get_xdata(), [100, 300])
+    np.testing.assert_allclose(axis.lines[1].get_ydata(), [6.0, 18.0])
+    assert axis.lines[1].get_color() == "#b3360f"
+    assert len(figures[1].axes[0].lines) == 1
+
+
+def test_plot_msd_real_time_fit_reports_diffusion_in_selected_time_unit():
+    """Convert MSD x-values to real time before fitting diffusion coefficients."""
+
+    simulation = LoadedSimulation(
+        index=1,
+        msd_df=pd.DataFrame({"Timestep": [0, 1000], "total": [0.0, 6.0]}),
+    )
+
+    figures = plot_msd(
+        [simulation],
+        [(1, "total")],
+        fit_range=(0, 1000),
+        plot_settings=PlotSettings(x_axis="time", timestep_size_fs=0.5, time_unit="ps"),
+    )
+
+    axis = figures[0].axes[0]
+    assert axis.get_xlabel() == "Time [ps]"
+    assert axis.lines[1].get_label() == "MSD1 - total fit (D=2 Å²/ps)"
+    np.testing.assert_allclose(axis.lines[0].get_xdata(), [0.0, 0.5])
+    np.testing.assert_allclose(axis.lines[1].get_xdata(), [0.0, 0.5])
+
+
+def test_plot_msd_can_reset_real_time_origin_without_changing_diffusion():
+    """Display production-run timesteps from zero while preserving fitted slope."""
+
+    simulation = LoadedSimulation(
+        index=1,
+        msd_df=pd.DataFrame({"Timestep": [1000, 2000], "total": [0.0, 6.0]}),
+    )
+
+    figures = plot_msd(
+        [simulation],
+        [(1, "total")],
+        fit_range=(1000, 2000),
+        plot_settings=PlotSettings(
+            x_axis="time",
+            timestep_size_fs=0.5,
+            time_unit="ps",
+            reset_x_origin=True,
+        ),
+    )
+
+    axis = figures[0].axes[0]
+    assert axis.get_xlabel() == "Time [ps]"
+    assert axis.lines[1].get_label() == "MSD1 - total fit (D=2 Å²/ps)"
+    np.testing.assert_allclose(axis.lines[0].get_xdata(), [0.0, 0.5])
+    np.testing.assert_allclose(axis.lines[1].get_xdata(), [0.0, 0.5])
+
+
+def test_plot_species_can_reset_timestep_origin():
+    """Shift production-run timestep plots so the displayed x-axis starts at zero."""
+
+    simulations = [
+        LoadedSimulation(
+            index=1,
+            species_df=pd.DataFrame({"Timestep": [5000, 5010], "No_Moles": [4, 5], "Li": [1, 2]}),
+        ),
+    ]
+
+    figures = plot_species(
+        simulations,
+        ["Li"],
+        plot_settings=PlotSettings(reset_x_origin=True),
+    )
+
+    np.testing.assert_allclose(figures[0].axes[0].lines[0].get_xdata(), [0, 10])
+
+
+def test_plot_species_applies_log_axis_settings():
+    """Apply shared logarithmic axis settings to species plots."""
+
+    simulations = [
+        LoadedSimulation(
+            index=1,
+            species_df=pd.DataFrame({"Timestep": [1, 10], "No_Moles": [4, 5], "Li": [1, 2]}),
+        ),
+    ]
+
+    figures = plot_species(
+        simulations,
+        ["Li"],
+        plot_settings=PlotSettings(log_x=True, log_y=True),
+    )
+
+    assert figures[0].axes[0].get_xscale() == "log"
+    assert figures[0].axes[0].get_yscale() == "log"
 
 
 def test_plot_msd_compares_selected_average_groups():
@@ -447,6 +622,7 @@ def test_plot_rdf_average_uses_only_shared_radius_values():
     average_line = figures[1].axes[0].lines[0]
     np.testing.assert_allclose(average_line.get_xdata(), [0.5, 1.5])
     np.testing.assert_allclose(average_line.get_ydata(), [2.0, 3.0])
+    assert average_line.get_color() == "#08da7a"
 
 
 def test_plot_rdf_adds_reference_lines():

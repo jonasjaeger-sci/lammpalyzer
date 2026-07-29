@@ -343,7 +343,7 @@ ITEM: ATOMS id type x y z
 
 
 def test_parse_bonds_applies_pair_cutoff_before_rdkit_connectivity(tmp_path: Path):
-    """Exclude a bond below its element-pair cutoff from the molecule graph."""
+    """Apply default and pair-specific cutoffs before RDKit connectivity."""
 
     pytest.importorskip("rdkit")
     bond_file = tmp_path / "bonds.reax"
@@ -357,14 +357,14 @@ def test_parse_bonds_applies_pair_cutoff_before_rdkit_connectivity(tmp_path: Pat
     )
 
     _, _, default_smiles_atoms, _ = parse_bonds(bond_file, {1: "C", 2: "H"})
-    _, _, filtered_smiles_atoms, _ = parse_bonds(
+    _, _, pair_cutoff_smiles_atoms, _ = parse_bonds(
         bond_file,
         {1: "C", 2: "H"},
-        bond_order_cutoffs={(1, 2): 0.5},
+        bond_order_cutoffs={(1, 2): 0.3},
     )
 
-    assert default_smiles_atoms[0] == [["1", "2"]]
-    assert filtered_smiles_atoms[0] == [["1"], ["2"]]
+    assert default_smiles_atoms[0] == [["1"], ["2"]]
+    assert pair_cutoff_smiles_atoms[0] == [["1", "2"]]
 
 
 def test_parse_bonds_keeps_bond_equal_to_cutoff(tmp_path: Path):

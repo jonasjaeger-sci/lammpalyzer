@@ -6,7 +6,17 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from lammpalyze.gui.helpers import parse_reference_lines, parse_timestep_values
-from lammpalyze.plotting import plot_species
+from lammpalyze.plotting import (
+    plot_species,
+    simulation_has_species_source,
+    species_names_for_source,
+)
+
+SPECIES_SOURCE_CHOICES = {
+    "LAMMPS species": "lammps",
+    "Bond analysis (formula)": "formula",
+    "Bond analysis (SMILES)": "smiles",
+}
 
 
 class SpeciesTabMixin:
@@ -78,11 +88,19 @@ class SpeciesTabMixin:
         self._species_scroll_canvas.pack(side="left", fill="both", expand=True)
         species_scrollbar.pack(side="right", fill="y")
 
+        self.species_source = tk.StringVar(value=self._initial_species_source_label())
+        ttk.Label(controls, text="Data source").pack(anchor="w")
+        species_source_box = ttk.Combobox(
+            controls,
+            textvariable=self.species_source,
+            values=self._available_species_source_labels(),
+            state="readonly",
+        )
+        species_source_box.bind("<<ComboboxSelected>>", lambda _event: self._update_species_source_controls())
+        species_source_box.pack(fill="x", pady=(0, 12))
+
         ttk.Label(controls, text="Simulations").pack(anchor="w")
         self.species_sim_list = tk.Listbox(controls, selectmode="multiple", exportselection=False, height=6)
-        for simulation in self.project.simulations:
-            if simulation.species_df is not None:
-                self.species_sim_list.insert("end", f"Simulation {simulation.index}")
         self.species_sim_list.pack(fill="x", pady=(0, 12))
 
         self.species_theme = tk.StringVar(value="Dark")
@@ -95,14 +113,6 @@ class SpeciesTabMixin:
         ).pack(fill="x", pady=(0, 12))
 
         ttk.Label(controls, text="Species").pack(anchor="w")
-        species = sorted(
-            {
-                name
-                for simulation in self.project.simulations
-                if simulation.species
-                for name in simulation.species
-            }
-        )
         species_list_frame = ttk.Frame(controls)
         species_list_frame.pack(fill="both", expand=True, pady=(0, 12))
         self.species_list = tk.Listbox(species_list_frame, selectmode="multiple", exportselection=False, height=18)
@@ -112,10 +122,6 @@ class SpeciesTabMixin:
             command=self.species_list.yview,
         )
         self.species_list.configure(yscrollcommand=species_list_scrollbar.set)
-        for name in species:
-            self.species_list.insert("end", name)
-        if species:
-            self.species_list.select_set(0, "end")
         self.species_list.bind("<<ListboxSelect>>", lambda _event: self._update_species_toggle_label())
         self.species_list.bind("<Enter>", self._unbind_species_controls_mousewheel)
         self.species_list.bind("<Leave>", self._bind_species_controls_mousewheel)
@@ -149,7 +155,8 @@ class SpeciesTabMixin:
 
         ttk.Button(controls, text="Plot", command=self._plot_species).pack(fill="x")
         ttk.Button(controls, text="Export PNG", command=self._save_species_plot).pack(fill="x", pady=(8, 0))
-        self._update_species_toggle_label()
+        self._species_simulations = []
+        self._update_species_source_controls()
 
     def _plot_species(self) -> None:
         """Plot selected species for selected simulations."""
@@ -169,6 +176,8 @@ class SpeciesTabMixin:
                 step_range=self._species_step_range(),
                 excluded_timesteps=self._species_excluded_timesteps(),
                 theme=self.species_theme.get(),
+                data_source=self._selected_species_source(),
+                plot_settings=self._plot_settings(),
             )
             for figure in figures:
                 canvas = self._create_figure_canvas(figure, self._species_plot_area)
@@ -191,8 +200,63 @@ class SpeciesTabMixin:
     def _selected_species_simulations(self):
         """Return species-capable simulations selected in the species listbox."""
 
-        available = [simulation for simulation in self.project.simulations if simulation.species_df is not None]
-        return [available[index] for index in self.species_sim_list.curselection()]
+        return [self._species_simulations[index] for index in self.species_sim_list.curselection()]
+
+    def _selected_species_source(self) -> str:
+        """Return the normalized species data source selected in the GUI."""
+
+        return SPECIES_SOURCE_CHOICES[self.species_source.get()]
+
+    def _initial_species_source_label(self) -> str:
+        """Return the first available species source label."""
+
+        labels = self._available_species_source_labels()
+        return labels[0] if labels else "LAMMPS species"
+
+    def _available_species_source_labels(self) -> list[str]:
+        """Return data-source labels with at least one available simulation."""
+
+        labels = []
+        for label, source in SPECIES_SOURCE_CHOICES.items():
+            if any(simulation_has_species_source(simulation, source) for simulation in self.project.simulations):
+                labels.append(label)
+        return labels
+
+    def _update_species_source_controls(self) -> None:
+        """Refresh simulation and species choices for the selected source."""
+
+        if self.species_source.get() not in SPECIES_SOURCE_CHOICES:
+            self.species_source.set(self._initial_species_source_label())
+        selected_source = self._selected_species_source()
+        selected_simulations = {
+            self._species_simulations[index].index
+            for index in self.species_sim_list.curselection()
+            if index < len(self._species_simulations)
+        }
+        selected_species = {self.species_list.get(index) for index in self.species_list.curselection()}
+
+        self._species_simulations = [
+            simulation
+            for simulation in self.project.simulations
+            if simulation_has_species_source(simulation, selected_source)
+        ]
+        self.species_sim_list.delete(0, "end")
+        for simulation in self._species_simulations:
+            self.species_sim_list.insert("end", f"Simulation {simulation.index}")
+            if simulation.index in selected_simulations:
+                self.species_sim_list.select_set("end")
+
+        species = species_names_for_source(self._species_simulations, selected_source)
+        self.species_list.delete(0, "end")
+        selected_any_species = False
+        for name in species:
+            self.species_list.insert("end", name)
+            if name in selected_species:
+                self.species_list.select_set("end")
+                selected_any_species = True
+        if species and not selected_any_species:
+            self.species_list.select_set(0, "end")
+        self._update_species_toggle_label()
 
     def _species_reference_lines(self) -> tuple[list[float], list[float]]:
         """Return vertical and horizontal reference lines for the species plot."""

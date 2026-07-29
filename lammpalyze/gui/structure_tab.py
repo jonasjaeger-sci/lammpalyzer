@@ -173,6 +173,7 @@ class StructuralRelaxationTabMixin:
                 element_label=element if element is not None else "All atoms",
                 legend_location=self.structure_legend_location.get(),
                 theme=self.structure_theme.get(),
+                plot_settings=self._plot_settings(),
             )
             for canvas in self._structure_canvases:
                 self._destroy_canvas(canvas)

@@ -93,7 +93,7 @@ def test_parse_input_file_reads_bond_order_cutoffs_and_type_ranges(tmp_path: Pat
 
 
 def test_parse_input_file_uses_default_bond_order_cutoff_without_section(tmp_path: Path):
-    """Use 0.3 for every pair when no cutoff section is supplied."""
+    """Use 0.5 for every pair when no cutoff section is supplied."""
 
     input_file = tmp_path / "lmplyz.inp"
     input_file.write_text(
@@ -103,9 +103,9 @@ def test_parse_input_file_uses_default_bond_order_cutoff_without_section(tmp_pat
 
     config = parse_input_file(input_file)
 
-    assert config.default_bond_order_cutoff == 0.3
+    assert config.default_bond_order_cutoff == 0.5
     assert config.bond_order_cutoffs == {}
-    assert config.bond_order_cutoff(1, 2) == 0.3
+    assert config.bond_order_cutoff(1, 2) == 0.5
 
 
 def test_parse_input_file_rejects_cutoff_types_outside_element_list(tmp_path: Path):

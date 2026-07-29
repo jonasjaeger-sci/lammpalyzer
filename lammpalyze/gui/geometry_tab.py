@@ -136,6 +136,7 @@ class GeometryTabMixin:
                     if self.geometry_molecule_notation.get() == "Chemical formula"
                     else "smiles"
                 ),
+                plot_settings=self._plot_settings(),
                 **options,
             )
             self._replace_canvas("_geometry_canvas", self._geometry_plot_area, figure)

@@ -6,8 +6,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from lammpalyze.plotting import (
+    PlotSettings,
     ReferenceLines,
     _add_reference_lines,
+    _inverse_hex_color,
     _line_colors,
     _style_axes,
     _theme_colors,
@@ -26,6 +28,7 @@ def plot_rdf(
     legend_location: str = "best",
     theme: str = "dark",
     gradient_colors: tuple[str, str] | None = None,
+    plot_settings: PlotSettings | None = None,
 ):
     """Plot selected RDF curves and their aligned mean/standard deviation."""
 
@@ -58,7 +61,14 @@ def plot_rdf(
                 label=f"Simulation {result.simulation_index} Avg",
             )
 
-    _style_axes(ax, f"RDF {element_a}-{element_b}", "g(r)", style, x_label="r [A]")
+    _style_axes(
+        ax,
+        f"RDF {element_a}-{element_b}",
+        "g(r)",
+        style,
+        x_label="r [A]",
+        plot_settings=plot_settings,
+    )
     _add_reference_lines(ax, reference_lines, color=style["text"])
     legend = ax.legend(loc=_validated_legend_location(legend_location), frameon=False)
     for text in legend.get_texts():
@@ -73,6 +83,7 @@ def plot_rdf(
             reference_lines=reference_lines,
             legend_location=legend_location,
             theme=theme,
+            plot_settings=plot_settings,
         )
     except Exception:
         plt.close(fig)
@@ -88,6 +99,7 @@ def _plot_rdf_average(
     reference_lines: ReferenceLines | None,
     legend_location: str,
     theme: str,
+    plot_settings: PlotSettings | None = None,
 ):
     """Plot an RDF mean and deviation band at radii shared by all results."""
 
@@ -106,7 +118,13 @@ def _plot_rdf_average(
     deviation = merged[value_columns].std(axis=1).fillna(0.0)
 
     fig, ax = plt.subplots(figsize=(8.5, 4.8), facecolor=style["figure"])
-    ax.plot(merged["r"], mean, color=style["mean"], linewidth=2.2, label="Mean")
+    ax.plot(
+        merged["r"],
+        mean,
+        color=_inverse_hex_color(style["std"]),
+        linewidth=2.2,
+        label="Mean",
+    )
     ax.fill_between(
         merged["r"],
         mean - deviation,
@@ -121,6 +139,7 @@ def _plot_rdf_average(
         "g(r)",
         style,
         x_label="r [A]",
+        plot_settings=plot_settings,
     )
     _add_reference_lines(ax, reference_lines, color=style["text"])
     legend = ax.legend(loc=_validated_legend_location(legend_location), frameon=False)

@@ -16,7 +16,7 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
     config = SimpleNamespace(
         name="config",
         input_file=tmp_path / "lmplyz.inp",
-        default_bond_order_cutoff=0.3,
+        default_bond_order_cutoff=0.5,
         bond_order_cutoffs={},
         bond_state_persistence_frames=1,
         bond_state_persistence_timesteps=0,
@@ -80,7 +80,7 @@ def test_main_loads_project_writes_paths_and_skips_gui(monkeypatch, tmp_path: Pa
                 "run_date": calls["writer_kwargs"]["metadata"]["run_date"],
                 "simulation_ids": [1, 2],
                 "software_version": cli.VERSION,
-                "default_bond_order_cutoff": 0.3,
+                "default_bond_order_cutoff": 0.5,
                 "bond_order_cutoffs": [],
                 "bond_state_persistence_frames": 1,
                 "bond_state_persistence_timesteps": 0,
@@ -118,7 +118,7 @@ def test_lammpalyze_example_cli_writes_expected_paths(tmp_path: Path):
 
     assert result.returncode == 0, result.stderr
     assert "Loaded 2 simulation(s)." in result.stdout
-    assert "Wrote 388 reaction path(s)" in result.stdout
+    assert "Wrote 321 reaction path(s)" in result.stdout
     assert b"\r\n" not in output_path.read_bytes()
 
     rows = list(csv.reader(output_path.open(encoding="utf-8", newline="")))
@@ -131,7 +131,7 @@ def test_lammpalyze_example_cli_writes_expected_paths(tmp_path: Path):
 
     table = rows[blank_row + 1:]
     assert table[0] == ["Reaction", "Simulation 1", "Simulation 2", "Sum"]
-    assert len(table[1:]) == 388
+    assert len(table[1:]) == 321
     assert all(int(row[1]) + int(row[2]) == int(row[3]) for row in table[1:])
 
 

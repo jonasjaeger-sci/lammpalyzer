@@ -20,6 +20,7 @@ from lammpalyze.gui.reactions_tab import ReactionTabMixin
 from lammpalyze.gui.species_tab import SpeciesTabMixin
 from lammpalyze.gui.structure_tab import StructuralRelaxationTabMixin
 from lammpalyze.gui.thermo_tab import ThermoTabMixin
+from lammpalyze.plotting import PlotSettings
 
 
 # Tkinter tabs are intentionally separated into focused mixins.
@@ -90,6 +91,7 @@ class LammpalyzeGUI(
 
         top_bar = ttk.Frame(self.root)
         top_bar.pack(fill="x", padx=8, pady=(8, 0))
+        self._build_plot_settings(top_bar)
         ttk.Button(top_bar, text="Quit", command=self.close).pack(side="right")
 
         tabs = ttk.Notebook(self.root)
@@ -135,6 +137,58 @@ class LammpalyzeGUI(
         self._build_connected_pathways_tab(connected_pathways_tab)
         self._build_pathway_graph_tab(pathway_graph_tab)
         self._build_reaction_tab(reaction_tab)
+
+    def _build_plot_settings(self, parent: ttk.Frame) -> None:
+        """Build shared plot display settings."""
+
+        settings = ttk.LabelFrame(parent, text="Plot settings")
+        settings.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        self.plot_x_axis_mode = tk.StringVar(value="Timesteps")
+        ttk.Label(settings, text="X-axis").pack(side="left", padx=(8, 4))
+        ttk.Combobox(
+            settings,
+            textvariable=self.plot_x_axis_mode,
+            values=["Timesteps", "Real time"],
+            state="readonly",
+            width=11,
+        ).pack(side="left", padx=(0, 8))
+
+        self.plot_timestep_size_fs = tk.StringVar(value="0.5")
+        ttk.Label(settings, text="Step fs").pack(side="left", padx=(0, 4))
+        ttk.Entry(settings, textvariable=self.plot_timestep_size_fs, width=7).pack(side="left", padx=(0, 8))
+
+        self.plot_time_unit = tk.StringVar(value="ps")
+        ttk.Label(settings, text="Unit").pack(side="left", padx=(0, 4))
+        ttk.Combobox(
+            settings,
+            textvariable=self.plot_time_unit,
+            values=["fs", "ps", "ns", "us", "ms", "s"],
+            state="readonly",
+            width=5,
+        ).pack(side="left", padx=(0, 8))
+
+        self.plot_reset_x_origin = tk.BooleanVar(value=False)
+        self.plot_log_x = tk.BooleanVar(value=False)
+        self.plot_log_y = tk.BooleanVar(value=False)
+        ttk.Checkbutton(settings, text="Reset x=0", variable=self.plot_reset_x_origin).pack(
+            side="left",
+            padx=(0, 6),
+        )
+        ttk.Checkbutton(settings, text="Log x", variable=self.plot_log_x).pack(side="left", padx=(0, 6))
+        ttk.Checkbutton(settings, text="Log y", variable=self.plot_log_y).pack(side="left", padx=(0, 8))
+
+    def _plot_settings(self) -> PlotSettings:
+        """Return validated shared plot display settings."""
+
+        return PlotSettings(
+            x_axis="time" if self.plot_x_axis_mode.get() == "Real time" else "timestep",
+            timestep_size_fs=float(self.plot_timestep_size_fs.get()),
+            time_unit=self.plot_time_unit.get(),
+            reset_x_origin=self.plot_reset_x_origin.get(),
+            log_x=self.plot_log_x.get(),
+            log_y=self.plot_log_y.get(),
+        )
 
     def close(self) -> None:
         """Close the GUI and release Matplotlib/Tk resources promptly."""

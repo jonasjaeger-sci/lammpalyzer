@@ -11,12 +11,14 @@ from lammpalyze.gui.helpers import (
     parse_simulation_groups,
 )
 from lammpalyze.plotting import plot_thermo
+from lammpalyze.plotting import _display_step_range
 
 
 def apply_thermo_axis_ranges(
     canvases,
     step_range: tuple[float, float] | None,
     y_range: tuple[float, float] | None,
+    plot_settings=None,
 ) -> None:
     """Apply axis limits to existing thermo canvases and redraw them."""
 
@@ -26,7 +28,7 @@ def apply_thermo_axis_ranges(
                 axis.set_autoscalex_on(True)
                 axis.autoscale_view(scalex=True, scaley=False)
             else:
-                axis.set_xlim(step_range)
+                axis.set_xlim(_display_step_range(step_range, plot_settings))
             if y_range is None:
                 axis.set_autoscaley_on(True)
                 axis.autoscale_view(scalex=False, scaley=True)
@@ -271,6 +273,7 @@ class ThermoTabMixin:
                 average_group_labels=self._thermo_average_group_labels(),
                 theme=self.thermo_theme.get(),
                 gradient_colors=self._thermo_gradient_colors(),
+                plot_settings=self._plot_settings(),
             )
             for figure in figures:
                 canvas = self._create_figure_canvas(figure, self._thermo_plot_area)
@@ -342,7 +345,7 @@ class ThermoTabMixin:
             y_range = self._thermo_y_range()
         except ValueError:
             return
-        apply_thermo_axis_ranges(self._thermo_canvases, step_range, y_range)
+        apply_thermo_axis_ranges(self._thermo_canvases, step_range, y_range, self._plot_settings())
 
     def _close_thermo_axis_update(self) -> None:
         """Cancel a pending live thermo-axis update during GUI shutdown."""

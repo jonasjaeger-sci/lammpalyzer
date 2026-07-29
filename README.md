@@ -52,7 +52,7 @@ structure_quality_mode = flag
 ion_charge_threshold = 0.5
 
 # Bond Order cutoffs
-default 0.3
+default 0.5
 3 3 0.8
 3 4 0.55
 3 1*2 0.3
@@ -135,7 +135,7 @@ BF1 = bonds_R1.reax
 Each pair row contains two atom types followed by its cutoff. Pairs are
 unordered, so `1 3` and `3 1` configure the same bond. An inclusive range such
 as `1*2` expands to types 1 and 2. The `default` row changes the fallback cutoff
-for pairs without their own row; if it is omitted, the fallback is `0.3`. Bond
+for pairs without their own row; if it is omitted, the fallback is `0.5`. Bond
 orders below the applicable cutoff are ignored, while values equal to it are
 retained.
 
@@ -261,13 +261,21 @@ or SMILES notation.
 All embedded line plots show the nearest series label and its x/y coordinates
 when the mouse pointer is close to a plotted data point.
 
+The GUI `Plot settings` bar applies to newly generated plots. It can display
+timestep-like x-axes either as raw timesteps or as real time using a global
+timestep size, defaulting to `0.5 fs`, and a display unit, defaulting to `ps`.
+It can reset the displayed x-origin to zero for production-run chunks, and it
+also provides independent logarithmic x- and y-axis toggles.
+
 The `Mean-square displacement` tab reads computed tables with a `TimeStep`
 header followed by numeric data columns. Every file/column combination appears
 in its scrollable selector, for example `MSD1 - c_msd_C[1]`, with select-all and
 deselect-all buttons. As in the thermodynamic-data tab, it creates a
 selected-series plot and a second aligned mean/standard-deviation plot. Optional
 semicolon-separated simulation groups such as `1,2; 3,4` produce separately
-labelled averages. Both legends share a configurable placement.
+labelled averages. Both legends share a configurable placement. An optional
+linear-fit timestep range overlays per-series fits and reports diffusion
+coefficients as `D = slope / 6`, with MSD units of Å² per selected x-axis unit.
 
 File entries use a short prefix plus an optional simulation number. For example,
 `BF1`, `SF1`, `ThermoF1`, `TrajF1`, `Dump1`, and `MSD1` are grouped as
@@ -436,7 +444,7 @@ input_file,/path/to/lmplyz.inp
 run_date,2026-05-29T15:20:30+02:00
 simulation_ids,1;2
 software_version,1.4.0
-default_bond_order_cutoff,0.3
+default_bond_order_cutoff,0.5
 bond_order_cutoffs,3-3:0.8;3-4:0.55
 bond_state_persistence_frames,2
 bond_state_persistence_timesteps,0

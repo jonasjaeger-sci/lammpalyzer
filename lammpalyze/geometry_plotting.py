@@ -8,6 +8,7 @@ import pandas as pd
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.geometry import GeometrySeries
 from lammpalyze.plotting import (
+    PlotSettings,
     ReferenceLines,
     _plot_computed_series,
     add_atom_molecule_axis,
@@ -27,6 +28,7 @@ def plot_geometry(
     reference_lines: ReferenceLines | None = None,
     legend_location: str = "best",
     theme: str = "dark",
+    plot_settings: PlotSettings | None = None,
 ):
     """Plot trajectory-derived atom-pair distances or three-atom angles."""
 
@@ -54,6 +56,7 @@ def plot_geometry(
         reference_lines=reference_lines,
         legend_location=legend_location,
         theme=theme,
+        plot_settings=plot_settings,
     )
     if molecule_atom_ids:
         if simulations is None:

@@ -5,9 +5,13 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 
 from lammpalyze.plotting import (
+    PlotSettings,
+    _display_time_values,
     _line_colors,
     _style_axes,
+    _time_axis_origin,
     _theme_colors,
+    _time_axis_label,
     _validated_legend_location,
 )
 from lammpalyze.structure import StructuralRelaxationResult
@@ -19,6 +23,7 @@ def plot_structural_relaxation(
     element_label: str = "All atoms",
     legend_location: str = "best",
     theme: str = "dark",
+    plot_settings: PlotSettings | None = None,
 ):
     """Plot S(q) and F_s(q,t) for one or more simulations."""
 
@@ -56,25 +61,27 @@ def plot_structural_relaxation(
         "S(q)",
         style,
         x_label="|q| [1/A]",
+        plot_settings=plot_settings,
     )
     _style_legend(static_axis, legend_location, style)
     static_figure.tight_layout()
 
     incoherent_figure, incoherent_axis = plt.subplots(figsize=(8.5, 4.8), facecolor=style["figure"])
+    x_origin = _time_axis_origin([result.incoherent_scattering.time for result in results])
     for result, color in zip(results, colors, strict=False):
         incoherent = result.incoherent_scattering
         lower = incoherent.f_s - incoherent.f_s_error
         upper = incoherent.f_s + incoherent.f_s_error
         label = f"Simulation {result.simulation_index}, q={incoherent.q:.4g}"
         incoherent_axis.plot(
-            incoherent.time,
+            _display_time_values(incoherent.time, plot_settings, x_origin),
             incoherent.f_s,
             color=color,
             linewidth=2.0,
             label=label,
         )
         incoherent_axis.fill_between(
-            incoherent.time,
+            _display_time_values(incoherent.time, plot_settings, x_origin),
             lower,
             upper,
             color=color,
@@ -86,7 +93,8 @@ def plot_structural_relaxation(
         f"Incoherent scattering function ({element_label})",
         "F_s(q,t)",
         style,
-        x_label="Time lag [timestep]",
+        x_label=_time_axis_label(plot_settings),
+        plot_settings=plot_settings,
     )
     _style_legend(incoherent_axis, legend_location, style)
     incoherent_figure.tight_layout()

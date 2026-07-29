@@ -143,6 +143,12 @@ class ComputedDataTabMixin:
         ttk.Label(controls, text="Average group labels (semicolon-separated)").pack(anchor="w")
         ttk.Entry(controls, textvariable=self.msd_average_labels).pack(fill="x", pady=(0, 12))
 
+        self.msd_fit_start = tk.StringVar()
+        self.msd_fit_end = tk.StringVar()
+        ttk.Label(controls, text="Linear fit timestep range (optional)").pack(anchor="w")
+        ttk.Entry(controls, textvariable=self.msd_fit_start).pack(fill="x", pady=(0, 4))
+        ttk.Entry(controls, textvariable=self.msd_fit_end).pack(fill="x", pady=(0, 12))
+
         self._build_computed_plot_options(controls, "msd")
         ttk.Button(controls, text="Plot", command=self._plot_msd).pack(fill="x")
         ttk.Button(controls, text="Export PNG", command=self._save_msd_plot).pack(
@@ -318,6 +324,7 @@ class ComputedDataTabMixin:
                     if self.pairwise_molecule_notation.get() == "Chemical formula"
                     else "smiles"
                 ),
+                plot_settings=self._plot_settings(),
                 **self._computed_plot_options("pairwise"),
             )
             self._replace_canvas("_pairwise_canvas", self._pairwise_plot_area, figure)
@@ -336,6 +343,8 @@ class ComputedDataTabMixin:
                 selections,
                 average_groups=self._msd_average_groups(selections),
                 average_group_labels=self._msd_average_group_labels(),
+                fit_range=self._msd_fit_range(),
+                plot_settings=self._plot_settings(),
                 **self._computed_plot_options("msd"),
             )
             for canvas in self._msd_canvases:
@@ -372,6 +381,11 @@ class ComputedDataTabMixin:
 
         labels = [label.strip() for label in self.msd_average_labels.get().split(";")]
         return labels if any(labels) else None
+
+    def _msd_fit_range(self) -> tuple[float, float] | None:
+        """Return the optional timestep range used for MSD linear fits."""
+
+        return self._optional_range("msd", "fit_start", "fit_end", "linear fit timestep")
 
     def _computed_plot_options(self, prefix: str) -> dict:
         """Validate and collect common computed-data plot options."""

@@ -23,6 +23,7 @@ from lammpalyze.gui.pathway_graph import build_pathway_graph, pathway_graph_choi
 from lammpalyze.gui.canvas import _format_hover_value, _nearest_line_point
 from lammpalyze.gui.thermo_tab import apply_thermo_axis_ranges
 from lammpalyze.parsers import ComponentProperties
+from lammpalyze.plotting import PlotSettings
 from lammpalyze.reactions import ReactionPath
 
 
@@ -78,6 +79,23 @@ def test_apply_thermo_axis_ranges_restores_automatic_limits():
     assert axis.get_xlim()[1] > 10
     assert axis.get_ylim()[0] < 200
     assert axis.get_ylim()[1] > 400
+    plt.close(figure)
+
+
+def test_apply_thermo_axis_ranges_converts_real_time_limits():
+    """Convert timestep range entries for existing real-time thermo plots."""
+
+    figure, axis = plt.subplots()
+    axis.plot([0.0, 5.0], [200, 400])
+
+    apply_thermo_axis_ranges(
+        [figure.canvas],
+        (0, 10000),
+        None,
+        PlotSettings(x_axis="time", timestep_size_fs=0.5, time_unit="ps"),
+    )
+
+    assert axis.get_xlim() == (0.0, 5.0)
     plt.close(figure)
 
 

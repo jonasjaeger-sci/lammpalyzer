@@ -229,6 +229,7 @@ class ChargeTabMixin:
                 uncertainty=uncertainty,
                 step_range=self._charge_step_range(),
                 theme=self.charge_theme.get(),
+                plot_settings=self._plot_settings(),
             )
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("Atomic data plotting failed", str(exc))
@@ -244,6 +245,7 @@ class ChargeTabMixin:
         uncertainty: str,
         step_range: tuple[float, float] | None,
         theme: str,
+        plot_settings,
     ) -> None:
         """Collect atomic data in a worker so Tk remains responsive."""
 
@@ -263,6 +265,7 @@ class ChargeTabMixin:
             "uncertainty": uncertainty,
             "step_range": step_range,
             "theme": theme,
+            "plot_settings": plot_settings,
         }
         thread = threading.Thread(
             target=_collect_atomic_plot_data_worker,
@@ -333,6 +336,7 @@ class ChargeTabMixin:
                     show_uncertainty=bool(options["elements"]),
                     step_range=options["step_range"],
                     theme=options["theme"],
+                    plot_settings=options["plot_settings"],
                 )
             ]
 
@@ -346,6 +350,7 @@ class ChargeTabMixin:
                 show_uncertainty=True,
                 step_range=options["step_range"],
                 theme=options["theme"],
+                plot_settings=options["plot_settings"],
             ),
             plot_collected_atomic_series(
                 series.individual,
@@ -356,6 +361,7 @@ class ChargeTabMixin:
                 theme=options["theme"],
                 title=f"Individual {element_label} atoms: {property_label}",
                 individual_legend=True,
+                plot_settings=options["plot_settings"],
             ),
         ]
 
