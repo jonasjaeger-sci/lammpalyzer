@@ -7,7 +7,6 @@ from tkinter import messagebox, ttk
 
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.gui.helpers import LEGEND_PLACEMENTS, parse_reference_lines
-from lammpalyze.parsers import list_lammpstrj_timesteps
 from lammpalyze.rdf import compute_rdf
 from lammpalyze.rdf_plotting import plot_rdf
 
@@ -288,10 +287,5 @@ class RdfTabMixin:
         """Return cached trajectory timesteps for one simulation."""
 
         if simulation.index not in self._rdf_timesteps_by_simulation:
-            if simulation.trajectory_path is None:
-                self._rdf_timesteps_by_simulation[simulation.index] = []
-            else:
-                self._rdf_timesteps_by_simulation[simulation.index] = list_lammpstrj_timesteps(
-                    simulation.trajectory_path
-                )
+            self._rdf_timesteps_by_simulation[simulation.index] = simulation.trajectory_timesteps()
         return self._rdf_timesteps_by_simulation[simulation.index]

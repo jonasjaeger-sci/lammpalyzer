@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
+import lammpalyze.analysis as analysis_module
 from lammpalyze.analysis import LoadedSimulation, aggregate_thermo, load_project
 from lammpalyze.config import parse_input_file
 
@@ -50,3 +51,21 @@ ITEM: ENTRIES index id1 id2 distance
     simulation = project.simulations[0]
     assert simulation.pairwise_df["Pair"].tolist() == ["2-4"]
     assert simulation.msd_df["c_msd_C[4]"].tolist() == [0.0, 0.5]
+
+
+def test_loaded_simulation_caches_trajectory_timesteps(tmp_path: Path, monkeypatch):
+    """Share one trajectory scan across GUI tabs."""
+
+    scans = []
+
+    def fake_index_frames(path):
+        scans.append(path)
+        return {0: 0, 10: 100, 20: 200}
+
+    monkeypatch.setattr(analysis_module, "index_lammpstrj_frames", fake_index_frames)
+    trajectory = tmp_path / "trajectory.lammpstrj"
+    simulation = LoadedSimulation(index=1, trajectory_path=trajectory)
+
+    assert simulation.trajectory_timesteps() == [0, 10, 20]
+    assert simulation.trajectory_timesteps() == [0, 10, 20]
+    assert scans == [trajectory]

@@ -3,6 +3,7 @@
 from lammpalyze.parsers.bonds import (
     bo_to_rdkit_bond,
     first_appearance,
+    index_reax_bond_frames,
     map_atoms_to_mols,
     parse_bond_observations,
     parse_bonds,
@@ -31,6 +32,7 @@ from lammpalyze.parsers.species import eval_species
 from lammpalyze.parsers.thermo import eval_thermo
 from lammpalyze.parsers.trajectory import (
     copy_lammpstrj_until,
+    index_lammpstrj_frames,
     iter_lammpstrj_frames,
     list_lammpstrj_timesteps,
     parse_traj,
@@ -57,6 +59,8 @@ __all__ = [
     "eval_msd",
     "eval_pairwise_dump",
     "first_appearance",
+    "index_lammpstrj_frames",
+    "index_reax_bond_frames",
     "iter_lammpstrj_frames",
     "list_lammpstrj_timesteps",
     "map_atoms_to_mols",

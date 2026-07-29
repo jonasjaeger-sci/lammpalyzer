@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -14,23 +14,31 @@ from lammpalyze.config import LammpalyzeConfig
 from lammpalyze.parsers import (
     ChargeStatistics,
     ComponentProperties,
+    ReaxBond,
+    TrajectoryFrame,
     eval_msd,
     eval_pairwise_dump,
     eval_species,
     eval_thermo,
+    index_lammpstrj_frames,
+    index_reax_bond_frames,
     parse_bond_observations,
     parse_traj,
+    read_lammpstrj_frame,
+    read_reax_bonds_frame,
 )
 from lammpalyze.reactions import (
     ConnectedReactionPathway,
     ConnectedReactionOccurrence,
     ConnectedReactionStep,
+    PathwayEdgeData,
     ReactionOccurrence,
     ReactionPath,
-    build_connected_reaction_pathways,
+    build_connected_reaction_pathways_from_edge_data,
     build_reaction_path_table,
-    find_connected_reaction_occurrence,
+    collect_connected_pathway_edge_data,
     find_reaction_occurrences,
+    index_connected_reaction_occurrences,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -59,6 +67,8 @@ class LoadedSimulation:
     trajectory_path: Path | None = None
     bond_path: Path | None = None
     type_to_element: dict[int, str] | None = None
+    _trajectory_frame_offsets: dict[int, int] | None = field(default=None, init=False, repr=False)
+    _bond_frame_offsets: dict[int, int] | None = field(default=None, init=False, repr=False)
 
     @property
     def has_bond_data(self) -> bool:
@@ -83,6 +93,38 @@ class LoadedSimulation:
 
         return list(self.iter_trajectory())
 
+    def trajectory_timesteps(self) -> list[int]:
+        """Return trajectory timesteps, scanning the file at most once."""
+
+        if self._trajectory_frame_offsets is None:
+            if self.trajectory_path is None:
+                self._trajectory_frame_offsets = {}
+            else:
+                self._trajectory_frame_offsets = index_lammpstrj_frames(self.trajectory_path)
+        return list(self._trajectory_frame_offsets)
+
+    def read_trajectory_frame(self, timestep: int) -> TrajectoryFrame:
+        """Read one trajectory frame using the cached file index."""
+
+        if self.trajectory_path is None:
+            raise ValueError(f"Simulation {self.index} has no trajectory file.")
+        self.trajectory_timesteps()
+        frame_offset = (self._trajectory_frame_offsets or {}).get(timestep)
+        return read_lammpstrj_frame(self.trajectory_path, timestep, frame_offset=frame_offset)
+
+    def read_bond_frame(self, timestep: int) -> list[ReaxBond]:
+        """Read one bond frame using offsets captured during project loading."""
+
+        if self.bond_path is None:
+            raise ValueError(f"Simulation {self.index} has no ReaxFF bond file.")
+        if self._bond_frame_offsets is None:
+            self._bond_frame_offsets = index_reax_bond_frames(self.bond_path)
+        return read_reax_bonds_frame(
+            self.bond_path,
+            timestep,
+            frame_offset=(self._bond_frame_offsets or {}).get(timestep),
+        )
+
 
 @dataclass
 class LammpalyzeProject:
@@ -90,6 +132,25 @@ class LammpalyzeProject:
 
     config: LammpalyzeConfig
     simulations: list[LoadedSimulation]
+    _reaction_path_table_cache: (
+        tuple[list[int], list[ReactionPath], dict[str, dict[int, int]]] | None
+    ) = field(default=None, init=False, repr=False)
+    _connected_pathway_cache: dict[
+        tuple[str, int],
+        list[ConnectedReactionPathway],
+    ] = field(default_factory=dict, init=False, repr=False)
+    _connected_pathway_edge_cache: dict[str, PathwayEdgeData] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _first_reaction_occurrences_cache: (
+        dict[str, tuple[LoadedSimulation, ReactionOccurrence]] | None
+    ) = field(default=None, init=False, repr=False)
+    _connected_occurrence_index_cache: dict[
+        str,
+        dict[int, dict[tuple[str, str], ReactionOccurrence]],
+    ] = field(default_factory=dict, init=False, repr=False)
 
     def reaction_paths(self) -> list[ReactionPath]:
         """Collapse the per-run reaction counts into one ranked list."""
@@ -100,7 +161,9 @@ class LammpalyzeProject:
     def reaction_path_table(self) -> tuple[list[int], list[ReactionPath], dict[str, dict[int, int]]]:
         """Prepare reaction counts in the same shape used by the GUI table."""
 
-        return build_reaction_path_table(self.simulations)
+        if self._reaction_path_table_cache is None:
+            self._reaction_path_table_cache = build_reaction_path_table(self.simulations)
+        return self._reaction_path_table_cache
 
     def connected_reaction_pathways(
         self,
@@ -109,7 +172,23 @@ class LammpalyzeProject:
     ) -> list[ConnectedReactionPathway]:
         """Prepare connected reaction-state pathways for GUI display."""
 
-        return build_connected_reaction_pathways(self.simulations, notation=notation, min_count=min_count)
+        if notation not in {"formula", "smiles"}:
+            raise ValueError("notation must be 'formula' or 'smiles'.")
+        if min_count < 1:
+            raise ValueError("min_count must be at least 1.")
+        cache_key = (notation, min_count)
+        if cache_key not in self._connected_pathway_cache:
+            if notation not in self._connected_pathway_edge_cache:
+                self._connected_pathway_edge_cache[notation] = (
+                    collect_connected_pathway_edge_data(self.simulations, notation)
+                )
+            self._connected_pathway_cache[cache_key] = (
+                build_connected_reaction_pathways_from_edge_data(
+                    self._connected_pathway_edge_cache[notation],
+                    min_count=min_count,
+                )
+            )
+        return self._connected_pathway_cache[cache_key]
 
     def first_reaction_occurrence(self, reaction: str) -> tuple[LoadedSimulation, ReactionOccurrence]:
         """Find a concrete event for a reaction path, scanning runs in order."""
@@ -133,6 +212,8 @@ class LammpalyzeProject:
     def first_reaction_occurrences(self) -> dict[str, tuple[LoadedSimulation, ReactionOccurrence]]:
         """Return the first concrete event for each observed reaction path."""
 
+        if self._first_reaction_occurrences_cache is not None:
+            return self._first_reaction_occurrences_cache
         occurrences_by_reaction = {}
         for simulation in self.simulations:
             if simulation.smiles is None or simulation.smiles_id is None:
@@ -145,7 +226,8 @@ class LammpalyzeProject:
                 quality_mode=simulation.structure_quality_mode,
             ):
                 occurrences_by_reaction.setdefault(occurrence.reaction, (simulation, occurrence))
-        return occurrences_by_reaction
+        self._first_reaction_occurrences_cache = occurrences_by_reaction
+        return self._first_reaction_occurrences_cache
 
     def first_connected_reaction_occurrence(
         self,
@@ -154,13 +236,30 @@ class LammpalyzeProject:
     ) -> tuple[LoadedSimulation, ConnectedReactionOccurrence]:
         """Find a concrete event matching one displayed connected pathway step."""
 
+        if notation not in self._connected_occurrence_index_cache:
+            self._connected_occurrence_index_cache[notation] = {
+                simulation.index: index_connected_reaction_occurrences(
+                    simulation,
+                    notation=notation,
+                )
+                for simulation in self.simulations
+            }
         simulation_indexes = set(step.simulations)
         for simulation in self.simulations:
             if simulation_indexes and simulation.index not in simulation_indexes:
                 continue
-            occurrence = find_connected_reaction_occurrence(simulation, step, notation=notation)
+            occurrence_index = self._connected_occurrence_index_cache[notation][simulation.index]
+            occurrence = occurrence_index.get((step.source, step.target))
+            direction = "forward"
+            if occurrence is None and step.arrow == "<->":
+                occurrence = occurrence_index.get((step.target, step.source))
+                direction = "reverse"
             if occurrence is not None:
-                return simulation, occurrence
+                return simulation, ConnectedReactionOccurrence(
+                    step=step,
+                    occurrence=occurrence,
+                    matched_direction=direction,
+                )
         raise ValueError(
             f"No occurrence found for connected pathway {step.label}: "
             f"{step.source} {step.arrow} {step.target}"

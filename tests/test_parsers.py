@@ -10,13 +10,18 @@ from lammpalyze.parsers import (
     eval_pairwise_dump,
     eval_species,
     eval_thermo,
+    index_lammpstrj_frames,
+    index_reax_bond_frames,
     iter_lammpstrj_frames,
-    parse_traj,
     parse_bond_observations,
     parse_bonds,
+    parse_traj,
+    read_lammpstrj_frame,
+    read_reax_bonds_frame,
 )
 from lammpalyze.parsers.bonds import (
     _RawBondFrame,
+    _iter_temporally_filtered_bond_frames,
     _temporally_filtered_bond_order_frames,
 )
 
@@ -233,6 +238,42 @@ ITEM: ATOMS id type q xu yu zu
     assert (frames[0].atoms[0].x, frames[0].atoms[0].y, frames[0].atoms[0].z) == (4.0, 5.0, 6.0)
 
 
+def test_trajectory_frame_index_supports_direct_frame_reads(tmp_path: Path):
+    """Seek directly to an indexed frame instead of rescanning prior frames."""
+
+    trajectory = tmp_path / "traj.lammpstrj"
+    trajectory.write_text(
+        """ITEM: TIMESTEP
+0
+ITEM: NUMBER OF ATOMS
+1
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ATOMS id type x y z
+1 1 1 2 3
+ITEM: TIMESTEP
+10
+ITEM: NUMBER OF ATOMS
+1
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ATOMS id type x y z
+1 1 4 5 6
+""",
+        encoding="utf-8",
+    )
+
+    offsets = index_lammpstrj_frames(trajectory)
+    frame = read_lammpstrj_frame(trajectory, 10, frame_offset=offsets[10])
+
+    assert list(offsets) == [0, 10]
+    assert (frame.atoms[0].x, frame.atoms[0].y, frame.atoms[0].z) == (4.0, 5.0, 6.0)
+
+
 def test_parse_traj_accepts_reordered_wrapped_columns(tmp_path: Path):
     """Build legacy arrays from flexible atom tables without requiring xu."""
 
@@ -371,6 +412,33 @@ def test_temporal_filter_backdates_accepted_bond_state_changes():
     assert bond_orders == [{}, {(1, 2): 1}, {(1, 2): 1}]
 
 
+def test_temporal_filter_streams_frames_without_pending_changes():
+    """Release each finalized frame without consuming the full input stream."""
+
+    consumed = []
+
+    def frames():
+        for timestep in (0, 10, 20):
+            consumed.append(timestep)
+            yield _raw_bond_frame(timestep, {(1, 2): 0.8})
+
+    filtered = _iter_temporally_filtered_bond_frames(
+        frames(),
+        {},
+        0.3,
+        {},
+        persistence_frames=1,
+        persistence_timesteps=0,
+        hysteresis=0.0,
+    )
+
+    frame, bond_orders = next(filtered)
+
+    assert frame.timestep == 0
+    assert bond_orders == {(1, 2): 1}
+    assert consumed == [0]
+
+
 def test_temporal_filter_keeps_stable_state_for_unresolved_flickers():
     """Do not backdate a candidate state that disappears before acceptance."""
 
@@ -422,6 +490,13 @@ def test_parse_bonds_filters_one_frame_bond_state_flicker(tmp_path: Path):
     )
 
     assert result.smiles_atoms == {0: [["1", "2"]], 10: [["1", "2"]], 20: [["1", "2"]]}
+    offsets = index_reax_bond_frames(bond_file)
+    bonds = read_reax_bonds_frame(
+        bond_file,
+        20,
+        frame_offset=offsets[20],
+    )
+    assert [(bond.atom_i, bond.atom_j) for bond in bonds] == [(1, 2)]
 
 
 def test_parse_bonds_accepts_transition_after_configured_timestep_duration(tmp_path: Path):

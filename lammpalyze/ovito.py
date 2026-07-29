@@ -14,7 +14,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 from lammpalyze.analysis import LoadedSimulation
-from lammpalyze.parsers import ReaxBond, TrajectoryAtom, TrajectoryFrame, read_lammpstrj_frame, read_reax_bonds_frame
+from lammpalyze.parsers import ReaxBond, TrajectoryAtom, TrajectoryFrame
 from lammpalyze.reactions import ReactionOccurrence
 
 
@@ -113,10 +113,10 @@ def create_reaction_scene(
     directory = Path(output_dir) if output_dir is not None else Path(tempfile.mkdtemp(prefix="lammpalyze_ovito_"))
     directory.mkdir(parents=True, exist_ok=True)
 
-    reactant_frame = read_lammpstrj_frame(simulation.trajectory_path, occurrence.timestep_reactants)
-    product_frame = read_lammpstrj_frame(simulation.trajectory_path, occurrence.timestep_products)
-    reactant_bonds = read_reax_bonds_frame(simulation.bond_path, occurrence.timestep_reactants)
-    product_bonds = read_reax_bonds_frame(simulation.bond_path, occurrence.timestep_products)
+    reactant_frame = simulation.read_trajectory_frame(occurrence.timestep_reactants)
+    product_frame = simulation.read_trajectory_frame(occurrence.timestep_products)
+    reactant_bonds = simulation.read_bond_frame(occurrence.timestep_reactants)
+    product_bonds = simulation.read_bond_frame(occurrence.timestep_products)
 
     data_file = directory / "reaction_side_by_side.data"
     info_file = directory / "reaction_scene.txt"
@@ -162,8 +162,8 @@ def create_reaction_state_snapshot(
     directory.mkdir(parents=True, exist_ok=True)
     timestep = occurrence.timestep_reactants if side == "reactants" else occurrence.timestep_products
     atom_ids = occurrence.reactant_atom_ids if side == "reactants" else occurrence.product_atom_ids
-    frame = read_lammpstrj_frame(simulation.trajectory_path, timestep)
-    bonds = read_reax_bonds_frame(simulation.bond_path, timestep)
+    frame = simulation.read_trajectory_frame(timestep)
+    bonds = simulation.read_bond_frame(timestep)
 
     data_file = directory / f"{side}_{timestep}.data"
     image_file = directory / f"{side}_{timestep}.png"

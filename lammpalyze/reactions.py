@@ -238,12 +238,35 @@ def find_connected_reaction_occurrence(
     """
 
     _validate_connected_pathway_options(notation, min_count=1)
+    occurrence_index = index_connected_reaction_occurrences(simulation, notation)
+    occurrence = occurrence_index.get((step.source, step.target))
+    direction = "forward"
+    if occurrence is None and step.arrow == "<->":
+        occurrence = occurrence_index.get((step.target, step.source))
+        direction = "reverse"
+    if occurrence is not None:
+        return ConnectedReactionOccurrence(
+            step=step,
+            occurrence=occurrence,
+            matched_direction=direction,
+        )
+    return None
+
+
+def index_connected_reaction_occurrences(
+    simulation,
+    notation: str = "formula",
+) -> dict[tuple[str, str], ReactionOccurrence]:
+    """Index the first concrete occurrence of every connected state edge."""
+
+    _validate_connected_pathway_options(notation, min_count=1)
     values_by_time = _pathway_values_by_time(simulation, notation)
     if values_by_time is None:
-        return None
+        return {}
     if simulation.smiles is None or simulation.smiles_id is None:
-        return None
+        return {}
 
+    occurrences = {}
     for t1, t2, reaction in _iter_reactions(
         simulation.smiles,
         simulation.smiles_id,
@@ -257,39 +280,35 @@ def find_connected_reaction_occurrence(
 
         source = _format_state(tuple(source_values))
         target = _format_state(tuple(target_values))
-        direction = ""
-        if source == step.source and target == step.target:
-            direction = "forward"
-        elif step.arrow == "<->" and source == step.target and target == step.source:
-            direction = "reverse"
-        if not direction:
+        if (source, target) in occurrences:
             continue
-
         reactants = sorted(simulation.smiles[t1][index] for index in reaction["reactants"])
         products = sorted(simulation.smiles[t2][index] for index in reaction["products"])
-        reactant_atom_ids = sorted(
-            {atom_id for index in reaction["reactants"] for atom_id in simulation.smiles_id[t1][index]},
-            key=_atom_sort_key,
-        )
-        product_atom_ids = sorted(
-            {atom_id for index in reaction["products"] for atom_id in simulation.smiles_id[t2][index]},
-            key=_atom_sort_key,
-        )
-        return ConnectedReactionOccurrence(
-            step=step,
-            occurrence=ReactionOccurrence(
-                reaction=_format_reaction(reactants, products),
-                timestep_reactants=t1,
-                timestep_products=t2,
-                reactants=reactants,
-                products=products,
-                reactant_atom_ids=reactant_atom_ids,
-                product_atom_ids=product_atom_ids,
-                simulation_index=getattr(simulation, "index", None),
+        occurrences[(source, target)] = ReactionOccurrence(
+            reaction=_format_reaction(reactants, products),
+            timestep_reactants=t1,
+            timestep_products=t2,
+            reactants=reactants,
+            products=products,
+            reactant_atom_ids=sorted(
+                {
+                    atom_id
+                    for index in reaction["reactants"]
+                    for atom_id in simulation.smiles_id[t1][index]
+                },
+                key=_atom_sort_key,
             ),
-            matched_direction=direction,
+            product_atom_ids=sorted(
+                {
+                    atom_id
+                    for index in reaction["products"]
+                    for atom_id in simulation.smiles_id[t2][index]
+                },
+                key=_atom_sort_key,
+            ),
+            simulation_index=getattr(simulation, "index", None),
         )
-    return None
+    return occurrences
 
 
 def build_reaction_path_table(simulations) -> tuple[list[int], list[ReactionPath], dict[str, dict[int, int]]]:
@@ -325,7 +344,28 @@ def build_connected_reaction_pathways(
     """Build possible reaction hierarchies from initially present species."""
 
     _validate_connected_pathway_options(notation, min_count)
-    edge_data = _collect_pathway_edge_data(simulations, notation)
+    edge_data = collect_connected_pathway_edge_data(simulations, notation)
+    return build_connected_reaction_pathways_from_edge_data(edge_data, min_count)
+
+
+def collect_connected_pathway_edge_data(
+    simulations,
+    notation: str = "formula",
+) -> PathwayEdgeData:
+    """Collect reusable reaction edges for connected pathway filtering."""
+
+    _validate_connected_pathway_options(notation, min_count=1)
+    return _collect_pathway_edge_data(simulations, notation)
+
+
+def build_connected_reaction_pathways_from_edge_data(
+    edge_data: PathwayEdgeData,
+    min_count: int = 1,
+) -> list[ConnectedReactionPathway]:
+    """Build connected pathways from reusable unfiltered edge data."""
+
+    if min_count < 1:
+        raise ValueError("min_count must be at least 1.")
     if not edge_data.edge_counts:
         return []
 
@@ -818,22 +858,29 @@ def _iter_adjacent_reaction_clusters(
 
     timesteps = sorted(smiles.keys())
     for t1, t2 in zip(timesteps, timesteps[1:], strict=False):
-        atom_mapping_t1 = map_atoms_to_mols(smiles[t1], smiles_id[t1])
-        atom_mapping_t2 = map_atoms_to_mols(smiles[t2], smiles_id[t2])
-
-        pointer_t1_t2: list[list[int]] = []
-        pointer_t2_t1: list[list[int]] = []
-
-        for molecule in smiles_id[t1]:
-            products = {atom_mapping_t2[atom_id][1] for atom_id in molecule if atom_id in atom_mapping_t2}
-            pointer_t1_t2.append(sorted(products))
-
-        for molecule in smiles_id[t2]:
-            reactants = {atom_mapping_t1[atom_id][1] for atom_id in molecule if atom_id in atom_mapping_t1}
-            pointer_t2_t1.append(sorted(reactants))
-
-        for reaction in reaction_clusters(pointer_t1_t2, pointer_t2_t1):
+        for reaction in _reaction_clusters_between(t1, t2, smiles, smiles_id):
             yield t1, t2, reaction
+
+
+def _reaction_clusters_between(
+    t1: int,
+    t2: int,
+    smiles: dict[int, list[str]],
+    smiles_id: dict[int, list[list[str]]],
+) -> list[dict[str, list[int]]]:
+    """Return atom-mapped reaction clusters for one adjacent frame pair."""
+
+    atom_mapping_t1 = map_atoms_to_mols(smiles[t1], smiles_id[t1])
+    atom_mapping_t2 = map_atoms_to_mols(smiles[t2], smiles_id[t2])
+    pointer_t1_t2 = [
+        sorted({atom_mapping_t2[atom_id][1] for atom_id in molecule if atom_id in atom_mapping_t2})
+        for molecule in smiles_id[t1]
+    ]
+    pointer_t2_t1 = [
+        sorted({atom_mapping_t1[atom_id][1] for atom_id in molecule if atom_id in atom_mapping_t1})
+        for molecule in smiles_id[t2]
+    ]
+    return reaction_clusters(pointer_t1_t2, pointer_t2_t1)
 
 
 def _iter_reactions_skipping_suspicious(
@@ -845,38 +892,52 @@ def _iter_reactions_skipping_suspicious(
 
     timesteps = sorted(smiles)
     timestep_positions = {timestep: index for index, timestep in enumerate(timesteps)}
+    suspicious_position_masks: dict[str, int] = defaultdict(int)
+    for timestep, component_indexes in suspicious_components.items():
+        position_bit = 1 << timestep_positions[timestep]
+        for component_index in component_indexes:
+            for atom_id in smiles_id[timestep][component_index]:
+                suspicious_position_masks[atom_id] |= position_bit
+    clean_baseline_cache: dict[tuple[int, frozenset[str]], int | None] = {}
     pending: list[_PendingSkipLineage] = []
 
-    for t1, t2, reaction in _iter_adjacent_reaction_clusters(smiles, smiles_id):
-        atom_ids = _reaction_cluster_atom_ids(reaction, t1, t2, smiles_id)
-        overlapping = [lineage for lineage in pending if lineage.atom_ids & atom_ids]
-        touches_suspicious = _reaction_touches_components(
-            reaction,
-            t1,
-            t2,
-            suspicious_components,
-        )
-        if not overlapping and not touches_suspicious:
-            yield t1, t2, reaction
-            continue
+    for t1, t2 in zip(timesteps, timesteps[1:], strict=False):
+        direct_reactions = []
+        for reaction in _reaction_clusters_between(t1, t2, smiles, smiles_id):
+            atom_ids = _reaction_cluster_atom_ids(reaction, t1, t2, smiles_id)
+            overlapping = [lineage for lineage in pending if lineage.atom_ids & atom_ids]
+            touches_suspicious = _reaction_touches_components(
+                reaction,
+                t1,
+                t2,
+                suspicious_components,
+            )
+            if not overlapping and not touches_suspicious:
+                direct_reactions.append((reaction, atom_ids))
+                continue
 
-        merged_atoms = set(atom_ids)
-        existing_baselines = []
-        for lineage in overlapping:
-            merged_atoms.update(lineage.atom_ids)
-            if lineage.baseline_timestep is not None:
-                existing_baselines.append(lineage.baseline_timestep)
-            pending.remove(lineage)
+            merged_atoms = set(atom_ids)
+            existing_baselines = []
+            for lineage in overlapping:
+                merged_atoms.update(lineage.atom_ids)
+                if lineage.baseline_timestep is not None:
+                    existing_baselines.append(lineage.baseline_timestep)
+                pending.remove(lineage)
 
-        baseline = min(existing_baselines) if existing_baselines else _latest_clean_timestep(
-            timesteps,
-            timestep_positions[t1],
-            merged_atoms,
-            smiles_id,
-            suspicious_components,
-        )
-        pending.append(_PendingSkipLineage(baseline, merged_atoms))
+            baseline = min(existing_baselines) if existing_baselines else _latest_clean_timestep(
+                timesteps,
+                timestep_positions[t1],
+                merged_atoms,
+                smiles_id,
+                suspicious_position_masks,
+                clean_baseline_cache,
+            )
+            pending.append(_PendingSkipLineage(baseline, merged_atoms))
+
         pending = _merge_pending_lineages(pending, t2, smiles_id)
+        for reaction, atom_ids in direct_reactions:
+            if not any(lineage.atom_ids & atom_ids for lineage in pending):
+                yield t1, t2, reaction
 
         resolved = []
         for lineage in pending:
@@ -939,19 +1000,34 @@ def _latest_clean_timestep(
     end_position: int,
     atom_ids: set[str],
     smiles_id: dict[int, list[list[str]]],
-    suspicious_components: Mapping[int, set[int]],
+    suspicious_position_masks: Mapping[str, int],
+    cache: dict[tuple[int, frozenset[str]], int | None],
 ) -> int | None:
     """Find the nearest earlier frame where the selected atom lineage was clean."""
 
-    for timestep in reversed(timesteps[:end_position + 1]):
+    cache_key = (end_position, frozenset(atom_ids))
+    if cache_key in cache:
+        return cache[cache_key]
+
+    possible_positions = (1 << (end_position + 1)) - 1
+    for atom_id in atom_ids:
+        possible_positions &= ~suspicious_position_masks.get(atom_id, 0)
+        if not possible_positions:
+            cache[cache_key] = None
+            return None
+
+    while possible_positions:
+        position = possible_positions.bit_length() - 1
+        timestep = timesteps[position]
         indexes = _component_indexes_overlapping(smiles_id[timestep], atom_ids)
         observed_atoms = {
             atom_id for index in indexes for atom_id in smiles_id[timestep][index]
         }
-        if atom_ids <= observed_atoms and not any(
-            index in suspicious_components.get(timestep, set()) for index in indexes
-        ):
+        if atom_ids <= observed_atoms:
+            cache[cache_key] = timestep
             return timestep
+        possible_positions &= ~(1 << position)
+    cache[cache_key] = None
     return None
 
 

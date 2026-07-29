@@ -7,7 +7,6 @@ from tkinter import messagebox, ttk
 
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.gui.helpers import LEGEND_PLACEMENTS
-from lammpalyze.parsers import list_lammpstrj_timesteps
 from lammpalyze.structure import compute_structural_relaxation
 from lammpalyze.structure_plotting import plot_structural_relaxation
 
@@ -227,12 +226,9 @@ class StructuralRelaxationTabMixin:
         """Return cached trajectory timesteps for one simulation."""
 
         if simulation.index not in self._structure_timesteps_by_simulation:
-            if simulation.trajectory_path is None:
-                self._structure_timesteps_by_simulation[simulation.index] = []
-            else:
-                self._structure_timesteps_by_simulation[simulation.index] = list_lammpstrj_timesteps(
-                    simulation.trajectory_path
-                )
+            self._structure_timesteps_by_simulation[simulation.index] = (
+                simulation.trajectory_timesteps()
+            )
         return self._structure_timesteps_by_simulation[simulation.index]
 
     @staticmethod

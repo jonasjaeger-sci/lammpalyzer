@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Mapping
 from dataclasses import dataclass
 from itertools import chain
@@ -117,9 +117,8 @@ def parse_bond_observations(
     ] = {}
     bond_states: dict[tuple[int, int], _BondState] = {}
 
-    raw_frames = list(_iter_raw_bond_frames(bond_file, type_to_element))
-    bond_order_frames = _temporally_filtered_bond_order_frames(
-        raw_frames,
+    filtered_frames = _iter_temporally_filtered_bond_frames(
+        _iter_raw_bond_frames(bond_file, type_to_element),
         bond_states,
         default_bond_order_cutoff,
         pair_cutoffs,
@@ -127,8 +126,7 @@ def parse_bond_observations(
         bond_state_persistence_timesteps,
         bond_order_hysteresis,
     )
-
-    for frame, bond_orders in zip(raw_frames, bond_order_frames, strict=True):
+    for frame, bond_orders in filtered_frames:
         bonds = [
             (atom_i, atom_j, _rdkit_bond_from_order(order))
             for (atom_i, atom_j), order in sorted(bond_orders.items())
@@ -174,7 +172,32 @@ def _temporally_filtered_bond_order_frames(
 ) -> list[dict[tuple[int, int], int]]:
     """Return finalized per-frame bond orders with accepted changes backdated."""
 
-    bond_order_frames: list[dict[tuple[int, int], int]] = []
+    return [
+        bond_orders
+        for _frame, bond_orders in _iter_temporally_filtered_bond_frames(
+            frames,
+            states,
+            default_cutoff,
+            pair_cutoffs,
+            persistence_frames,
+            persistence_timesteps,
+            hysteresis,
+        )
+    ]
+
+
+def _iter_temporally_filtered_bond_frames(
+    frames,
+    states: dict[tuple[int, int], _BondState],
+    default_cutoff: float,
+    pair_cutoffs: Mapping[tuple[int, int], float],
+    persistence_frames: int,
+    persistence_timesteps: int,
+    hysteresis: float,
+):
+    """Yield finalized frames as soon as no pending change can backdate them."""
+
+    buffered_frames = deque()
     for frame_index, frame in enumerate(frames):
         frame_bond_orders: dict[tuple[int, int], int] = {}
         observed_pairs = set(frame.bond_orders)
@@ -202,8 +225,8 @@ def _temporally_filtered_bond_order_frames(
                 )
                 if accepted is not None:
                     start_frame_index, accepted_order = accepted
-                    _backdate_accepted_bond_order(
-                        bond_order_frames,
+                    _backdate_buffered_bond_order(
+                        buffered_frames,
                         atom_pair,
                         start_frame_index,
                         accepted_order,
@@ -211,19 +234,34 @@ def _temporally_filtered_bond_order_frames(
 
             if state.stable_order:
                 frame_bond_orders[atom_pair] = state.stable_order
-        bond_order_frames.append(frame_bond_orders)
-    return bond_order_frames
+        buffered_frames.append((frame_index, frame, frame_bond_orders))
+
+        pending_starts = [
+            state.candidate_start_frame_index
+            for state in states.values()
+            if state.candidate_start_frame_index is not None
+        ]
+        safe_before = min(pending_starts) if pending_starts else frame_index + 1
+        while buffered_frames and buffered_frames[0][0] < safe_before:
+            _index, completed_frame, completed_orders = buffered_frames.popleft()
+            yield completed_frame, completed_orders
+
+    while buffered_frames:
+        _index, completed_frame, completed_orders = buffered_frames.popleft()
+        yield completed_frame, completed_orders
 
 
-def _backdate_accepted_bond_order(
-    bond_order_frames: list[dict[tuple[int, int], int]],
+def _backdate_buffered_bond_order(
+    buffered_frames,
     atom_pair: tuple[int, int],
     start_frame_index: int,
     accepted_order: int,
 ) -> None:
-    """Apply an accepted candidate state to previously emitted candidate frames."""
+    """Apply an accepted state to buffered candidate frames."""
 
-    for frame_bond_orders in bond_order_frames[start_frame_index:]:
+    for frame_index, _frame, frame_bond_orders in buffered_frames:
+        if frame_index < start_frame_index:
+            continue
         if accepted_order:
             frame_bond_orders[atom_pair] = accepted_order
         else:
@@ -416,7 +454,24 @@ def first_appearance(values_by_time: dict[int, list[str]]) -> tuple[list[str], d
     return sorted(unique), first
 
 
-def read_reax_bonds_frame(filename: str | Path, target_timestep: int) -> list[ReaxBond]:
+def index_reax_bond_frames(filename: str | Path) -> dict[int, int]:
+    """Return byte offsets for every ReaxFF bond timestep."""
+
+    frame_offsets = {}
+    line_offset = 0
+    with Path(filename).open("rb") as handle:
+        for raw_line in handle:
+            if raw_line.startswith(b"#") and b"Timestep" in raw_line:
+                frame_offsets[int(raw_line.split()[-1])] = line_offset
+            line_offset += len(raw_line)
+    return frame_offsets
+
+
+def read_reax_bonds_frame(
+    filename: str | Path,
+    target_timestep: int,
+    frame_offset: int | None = None,
+) -> list[ReaxBond]:
     """Read bonds from one ReaxFF bond-file frame."""
 
     bonds: list[ReaxBond] = []
@@ -425,6 +480,8 @@ def read_reax_bonds_frame(filename: str | Path, target_timestep: int) -> list[Re
     rows_read = 0
 
     with Path(filename).open(encoding="utf-8") as handle:
+        if frame_offset is not None:
+            handle.seek(frame_offset)
         for raw_line in handle:
             line = raw_line.strip()
             if not line:
@@ -435,6 +492,8 @@ def read_reax_bonds_frame(filename: str | Path, target_timestep: int) -> list[Re
                     if in_target:
                         return bonds
                     timestep = int(line.split()[-1])
+                    if frame_offset is not None and timestep != target_timestep:
+                        break
                     in_target = timestep == target_timestep
                     n_atoms = None
                     rows_read = 0
@@ -506,12 +565,20 @@ def _store_bond_frame(
     property_list: list[ComponentProperties] = []
     excluded_indexes: set[int] = set()
 
+    component_by_atom = {
+        atom_id: component_index
+        for component_index, component_ids in enumerate(components)
+        for atom_id in component_ids
+    }
+    bonds_by_component: list[list[tuple[int, int, object]]] = [
+        [] for _component in components
+    ]
+    for atom_i, atom_j, bond_type in bonds:
+        component_index = component_by_atom[str(atom_i)]
+        bonds_by_component[component_index].append((atom_i, atom_j, bond_type))
+
     for component_index, component_ids in enumerate(components):
-        component_bonds = [
-            (atom_i, atom_j, bond_type)
-            for atom_i, atom_j, bond_type in bonds
-            if str(atom_i) in component_ids and str(atom_j) in component_ids
-        ]
+        component_bonds = bonds_by_component[component_index]
         signature = _component_signature(component_ids, atoms, component_bonds)
         if signature not in molecule_cache:
             molecule_cache[signature] = _component_smiles_and_formula(component_ids, atoms, component_bonds)

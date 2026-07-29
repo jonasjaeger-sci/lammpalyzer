@@ -38,15 +38,22 @@ def parse_traj(filename: str | Path) -> Iterator[np.ndarray]:
 def list_lammpstrj_timesteps(filename: str | Path) -> list[int]:
     """Return all timesteps present in a LAMMPS trajectory file."""
 
-    timesteps = []
+    return list(index_lammpstrj_frames(filename))
+
+
+def index_lammpstrj_frames(filename: str | Path) -> dict[int, int]:
+    """Return byte offsets for every trajectory timestep."""
+
+    frame_offsets = {}
     with Path(filename).open(encoding="utf-8") as handle:
         n_atoms = 0
         while True:
+            line_offset = handle.tell()
             line = handle.readline()
             if not line:
                 break
             if line.startswith("ITEM: TIMESTEP"):
-                timesteps.append(int(handle.readline().strip()))
+                frame_offsets[int(handle.readline().strip())] = line_offset
                 continue
             if line.startswith("ITEM: NUMBER OF ATOMS"):
                 n_atoms = int(handle.readline().strip())
@@ -54,7 +61,7 @@ def list_lammpstrj_timesteps(filename: str | Path) -> list[int]:
             if line.startswith("ITEM: ATOMS"):
                 for _ in range(n_atoms):
                     handle.readline()
-    return timesteps
+    return frame_offsets
 
 
 def trajectory_atom_columns(filename: str | Path) -> list[str]:
@@ -166,10 +173,16 @@ def iter_lammpstrj_frames(
             yield TrajectoryFrame(timestep=timestep, bounds=bounds, atoms=atoms)
 
 
-def read_lammpstrj_frame(filename: str | Path, target_timestep: int) -> TrajectoryFrame:
+def read_lammpstrj_frame(
+    filename: str | Path,
+    target_timestep: int,
+    frame_offset: int | None = None,
+) -> TrajectoryFrame:
     """Read one trajectory frame by timestep for external visualization."""
 
     with Path(filename).open(encoding="utf-8") as handle:
+        if frame_offset is not None:
+            handle.seek(frame_offset)
         while True:
             line = handle.readline()
             if not line:
@@ -201,6 +214,8 @@ def read_lammpstrj_frame(filename: str | Path, target_timestep: int) -> Trajecto
 
             if timestep == target_timestep:
                 return TrajectoryFrame(timestep=timestep, bounds=bounds, atoms=atoms)
+            if frame_offset is not None:
+                break
 
     raise ValueError(f"Timestep {target_timestep} not found in trajectory file {filename}")
 

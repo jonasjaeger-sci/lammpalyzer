@@ -144,6 +144,29 @@ def test_project_first_reaction_occurrences_report_simulation_and_timesteps():
     assert occurrence.timestep_products == 10
 
 
+def test_project_reuses_reaction_results_for_gui_refreshes():
+    """Avoid repeating full reaction scans for cached GUI views."""
+
+    simulation = LoadedSimulation(
+        index=1,
+        smiles={0: ["AB"], 1: ["A", "B"]},
+        smiles_id={0: [["1", "2"]], 1: [["1"], ["2"]]},
+        chem_formulas={0: ["AB"], 1: ["A", "B"]},
+    )
+    project = LammpalyzeProject(config=None, simulations=[simulation])
+
+    path_table = project.reaction_path_table()
+    occurrences = project.first_reaction_occurrences()
+    pathways = project.connected_reaction_pathways(notation="formula")
+    edge_data = project._connected_pathway_edge_cache["formula"]
+
+    assert project.reaction_path_table() is path_table
+    assert project.first_reaction_occurrences() is occurrences
+    assert project.connected_reaction_pathways(notation="formula") is pathways
+    project.connected_reaction_pathways(notation="formula", min_count=2)
+    assert project._connected_pathway_edge_cache == {"formula": edge_data}
+
+
 def test_count_reaction_paths_respects_duplicate_species_stoichiometry():
     """Treat A + A -> A as a reaction instead of collapsing duplicates by set."""
 
