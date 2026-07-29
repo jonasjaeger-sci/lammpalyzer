@@ -1,6 +1,8 @@
 """Tests for plotting helpers."""
 # pylint: disable=wrong-import-position
 
+import warnings
+
 import matplotlib
 import numpy as np
 import pandas as pd
@@ -438,6 +440,33 @@ def test_plot_species_applies_log_axis_settings():
 
     assert figures[0].axes[0].get_xscale() == "log"
     assert figures[0].axes[0].get_yscale() == "log"
+
+
+def test_plot_species_log_x_range_starting_at_zero_does_not_warn():
+    """Clamp non-positive requested x-limits when plotting on a logarithmic x-axis."""
+
+    simulations = [
+        LoadedSimulation(
+            index=1,
+            species_df=pd.DataFrame({"Timestep": [0, 10], "No_Moles": [4, 5], "Li": [1, 2]}),
+        ),
+    ]
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        figures = plot_species(
+            simulations,
+            ["Li"],
+            step_range=(0, 10),
+            plot_settings=PlotSettings(log_x=True),
+        )
+
+    assert not [
+        warning
+        for warning in caught
+        if "Attempt to set non-positive xlim" in str(warning.message)
+    ]
+    assert figures[0].axes[0].get_xlim()[0] > 0
 
 
 def test_plot_msd_compares_selected_average_groups():

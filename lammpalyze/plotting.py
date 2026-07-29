@@ -1418,6 +1418,9 @@ def _apply_step_range(
         padding = max(abs(start) * 0.01, 1.0)
         start -= padding
         end += padding
+    settings = _normalize_plot_settings(plot_settings)
+    if settings.log_x:
+        start, end = _positive_log_xlim(ax, start, end)
     ax.set_xlim(start, end)
 
 
@@ -1431,7 +1434,60 @@ def _apply_y_range(ax, y_range: tuple[float, float] | None) -> None:
         padding = max(abs(start) * 0.01, 1.0)
         start -= padding
         end += padding
+    if ax.get_yscale() == "log":
+        start, end = _positive_log_ylim(ax, start, end)
     ax.set_ylim(start, end)
+
+
+def _positive_log_xlim(ax, start: float, end: float) -> tuple[float, float]:
+    """Return positive x-limits suitable for a logarithmic axis."""
+
+    positive_values = []
+    for line in ax.get_lines():
+        x_values = np.asarray(line.get_xdata(), dtype=float)
+        finite_positive = x_values[np.isfinite(x_values) & (x_values > 0)]
+        if finite_positive.size:
+            positive_values.append(float(finite_positive.min()))
+            positive_values.append(float(finite_positive.max()))
+    if not positive_values:
+        return _fallback_positive_limits(ax.get_xlim(), start, end)
+
+    smallest_positive = min(positive_values)
+    largest_positive = max(positive_values)
+    start = max(start, smallest_positive) if start <= 0 else start
+    end = max(end, largest_positive if start >= end else end)
+    return start, end
+
+
+def _positive_log_ylim(ax, start: float, end: float) -> tuple[float, float]:
+    """Return positive y-limits suitable for a logarithmic axis."""
+
+    positive_values = []
+    for line in ax.get_lines():
+        y_values = np.asarray(line.get_ydata(), dtype=float)
+        finite_positive = y_values[np.isfinite(y_values) & (y_values > 0)]
+        if finite_positive.size:
+            positive_values.append(float(finite_positive.min()))
+            positive_values.append(float(finite_positive.max()))
+    if not positive_values:
+        return _fallback_positive_limits(ax.get_ylim(), start, end)
+
+    smallest_positive = min(positive_values)
+    largest_positive = max(positive_values)
+    start = max(start, smallest_positive) if start <= 0 else start
+    end = max(end, largest_positive if start >= end else end)
+    return start, end
+
+
+def _fallback_positive_limits(current_limits: tuple[float, float], start: float, end: float) -> tuple[float, float]:
+    """Fallback to current positive limits when requested log limits are invalid."""
+
+    current_start, current_end = current_limits
+    if start <= 0:
+        start = current_start if current_start > 0 else 1.0
+    if end <= start:
+        end = current_end if current_end > start else start * 10.0
+    return start, end
 
 
 def _validated_running_average_points(points: int | None) -> int | None:

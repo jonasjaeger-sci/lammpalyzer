@@ -1,5 +1,7 @@
 """Tests for GUI data helpers."""
 
+import warnings
+
 import matplotlib.pyplot as plt
 
 from lammpalyze.analysis import LoadedSimulation
@@ -96,6 +98,31 @@ def test_apply_thermo_axis_ranges_converts_real_time_limits():
     )
 
     assert axis.get_xlim() == (0.0, 5.0)
+    plt.close(figure)
+
+
+def test_apply_thermo_axis_ranges_clamps_log_x_zero_start():
+    """Avoid Matplotlib warnings when live thermo x-limits start at zero on log axes."""
+
+    figure, axis = plt.subplots()
+    axis.plot([0, 10], [200, 400])
+    axis.set_xscale("log", nonpositive="mask")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        apply_thermo_axis_ranges(
+            [figure.canvas],
+            (0, 10),
+            None,
+            PlotSettings(log_x=True),
+        )
+
+    assert not [
+        warning
+        for warning in caught
+        if "Attempt to set non-positive xlim" in str(warning.message)
+    ]
+    assert axis.get_xlim()[0] > 0
     plt.close(figure)
 
 
@@ -305,4 +332,21 @@ def test_nearest_line_point_finds_labelled_data_in_display_coordinates():
     assert nearest[0] is line
     assert nearest[1:] == (1, 20.0, 3.5)
     assert _format_hover_value(1.23456789) == "1.234568"
+    plt.close(figure)
+
+
+def test_nearest_line_point_ignores_nonpositive_log_axis_points():
+    """Keep hover annotations working when log plots include an original zero point."""
+
+    figure, axis = plt.subplots()
+    line = axis.plot([0, 10], [1.0, 2.0], label="Simulation 1")[0]
+    axis.set_xscale("log", nonpositive="mask")
+    figure.canvas.draw()
+    x_pixel, y_pixel = line.get_transform().transform((10, 2.0))
+
+    nearest = _nearest_line_point(figure, x_pixel, y_pixel)
+
+    assert nearest is not None
+    assert nearest[0] is line
+    assert nearest[1:] == (1, 10.0, 2.0)
     plt.close(figure)

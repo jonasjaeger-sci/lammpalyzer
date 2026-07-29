@@ -242,6 +242,10 @@ def _nearest_line_point(figure, x_pixel: float, y_pixel: float, tolerance: float
             if points.ndim != 2 or points.shape[1] != 2 or points.size == 0:
                 continue
             finite = np.isfinite(points).all(axis=1)
+            if axis.get_xscale() == "log":
+                finite &= points[:, 0] > 0
+            if axis.get_yscale() == "log":
+                finite &= points[:, 1] > 0
             if not finite.any():
                 continue
             finite_indices = np.flatnonzero(finite)

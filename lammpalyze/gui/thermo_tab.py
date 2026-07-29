@@ -11,7 +11,7 @@ from lammpalyze.gui.helpers import (
     parse_simulation_groups,
 )
 from lammpalyze.plotting import plot_thermo
-from lammpalyze.plotting import _display_step_range
+from lammpalyze.plotting import _display_step_range, _positive_log_xlim
 
 
 def apply_thermo_axis_ranges(
@@ -28,7 +28,10 @@ def apply_thermo_axis_ranges(
                 axis.set_autoscalex_on(True)
                 axis.autoscale_view(scalex=True, scaley=False)
             else:
-                axis.set_xlim(_display_step_range(step_range, plot_settings))
+                start, end = _display_step_range(step_range, plot_settings)
+                if axis.get_xscale() == "log":
+                    start, end = _positive_log_xlim(axis, start, end)
+                axis.set_xlim(start, end)
             if y_range is None:
                 axis.set_autoscaley_on(True)
                 axis.autoscale_view(scalex=False, scaley=True)
