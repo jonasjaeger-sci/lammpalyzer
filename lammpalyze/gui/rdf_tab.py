@@ -7,7 +7,8 @@ from tkinter import messagebox, ttk
 
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.gui.helpers import LEGEND_PLACEMENTS, parse_reference_lines
-from lammpalyze.rdf import compute_rdf
+from lammpalyze.parsers import trajectory_atom_columns
+from lammpalyze.rdf import compute_rdf, parse_rdf_ids
 from lammpalyze.rdf_plotting import plot_rdf
 
 
@@ -82,30 +83,131 @@ class RdfTabMixin:
             self.rdf_sim_list.insert("end", f"Simulation {simulation.index}")
         if self.rdf_sim_list.size():
             self.rdf_sim_list.select_set(0, "end")
-        self.rdf_sim_list.bind("<<ListboxSelect>>", lambda _event: self._set_rdf_last_timesteps())
+        self.rdf_sim_list.bind(
+            "<<ListboxSelect>>",
+            lambda _event: self._rdf_simulation_selection_changed(),
+        )
         self.rdf_sim_list.pack(fill="x", pady=(0, 12))
 
         elements = self.project.config.element_list
         default_a = "Li" if "Li" in elements else (elements[0] if elements else "")
         default_b = "O" if "O" in elements else (elements[1] if len(elements) > 1 else default_a)
-        self.rdf_element_a = tk.StringVar(value=default_a)
-        self.rdf_element_b = tk.StringVar(value=default_b)
+        type_to_element = self.project.config.type_to_element
+        default_types_a = [
+            atom_type
+            for atom_type, element in type_to_element.items()
+            if element == default_a
+        ]
+        default_types_b = [
+            atom_type
+            for atom_type, element in type_to_element.items()
+            if element == default_b
+        ]
 
-        ttk.Label(controls, text="Element A").pack(anchor="w")
-        ttk.Combobox(controls, textvariable=self.rdf_element_a, values=elements, state="readonly").pack(
-            fill="x", pady=(0, 12)
+        particle_selection = ttk.LabelFrame(controls, text="RDF particles", padding=6)
+        particle_selection.pack(fill="x", pady=(0, 12))
+        self.rdf_particle_mode = tk.StringVar(value="atom")
+        self.rdf_atom_mode_button = ttk.Radiobutton(
+            particle_selection,
+            text="Atom types",
+            variable=self.rdf_particle_mode,
+            value="atom",
+            command=self._update_rdf_particle_controls,
         )
-        ttk.Label(controls, text="Element B").pack(anchor="w")
-        ttk.Combobox(controls, textvariable=self.rdf_element_b, values=elements, state="readonly").pack(
-            fill="x", pady=(0, 12)
+        self.rdf_atom_mode_button.pack(anchor="w")
+        self.rdf_molecule_mode_button = ttk.Radiobutton(
+            particle_selection,
+            text="Molecule centers of mass",
+            variable=self.rdf_particle_mode,
+            value="molecule",
+            command=self._update_rdf_particle_controls,
         )
+        self.rdf_molecule_mode_button.pack(anchor="w", pady=(0, 6))
+
+        self.rdf_atom_types_a = tk.StringVar(
+            value=",".join(str(atom_type) for atom_type in default_types_a)
+        )
+        self.rdf_atom_types_b = tk.StringVar(
+            value=",".join(str(atom_type) for atom_type in default_types_b)
+        )
+        self.rdf_atom_name_a = tk.StringVar(value=default_a)
+        self.rdf_atom_name_b = tk.StringVar(value=default_b)
+        self.rdf_atom_fields = self._build_rdf_particle_fields(
+            particle_selection,
+            "Atom types",
+            self.rdf_atom_types_a,
+            self.rdf_atom_types_b,
+            self.rdf_atom_name_a,
+            self.rdf_atom_name_b,
+        )
+
+        self.rdf_molecule_ids_a = tk.StringVar()
+        self.rdf_molecule_ids_b = tk.StringVar()
+        self.rdf_molecule_name_a = tk.StringVar(value="Molecule A")
+        self.rdf_molecule_name_b = tk.StringVar(value="Molecule B")
+        self.rdf_molecule_fields = self._build_rdf_particle_fields(
+            particle_selection,
+            "Molecule IDs",
+            self.rdf_molecule_ids_a,
+            self.rdf_molecule_ids_b,
+            self.rdf_molecule_name_a,
+            self.rdf_molecule_name_b,
+        )
+        self.rdf_molecule_hint = ttk.Label(
+            self.rdf_molecule_fields,
+            text="Use commas or inclusive ranges, e.g. 1*11,15,17.",
+            wraplength=240,
+        )
+        self.rdf_molecule_hint.grid(row=3, column=0, columnspan=3, sticky="w", pady=(3, 0))
+
+        self.rdf_molecule_availability = ttk.Label(
+            particle_selection,
+            text="",
+            wraplength=240,
+        )
+        self.rdf_molecule_availability.pack(fill="x", pady=(0, 6))
+
+        self.rdf_type_table_frame = ttk.Frame(particle_selection)
+        self.rdf_type_table_frame.pack(fill="x")
+        ttk.Label(self.rdf_type_table_frame, text="Atom-type mapping").pack(anchor="w")
+        table_body = ttk.Frame(self.rdf_type_table_frame)
+        table_body.pack(fill="x")
+        self.rdf_type_table = ttk.Treeview(
+            table_body,
+            columns=("type", "element"),
+            show="headings",
+            height=min(8, max(1, len(type_to_element))),
+        )
+        self.rdf_type_table.heading("type", text="Atom type")
+        self.rdf_type_table.heading("element", text="Element")
+        self.rdf_type_table.column("type", width=80, anchor="center", stretch=False)
+        self.rdf_type_table.column("element", width=115, anchor="w")
+        for atom_type, element in sorted(type_to_element.items()):
+            self.rdf_type_table.insert("", "end", values=(atom_type, element))
+        type_scrollbar = ttk.Scrollbar(
+            table_body,
+            orient="vertical",
+            command=self.rdf_type_table.yview,
+        )
+        self.rdf_type_table.configure(yscrollcommand=type_scrollbar.set)
+        self.rdf_type_table.pack(side="left", fill="x", expand=True)
+        type_scrollbar.pack(side="right", fill="y")
 
         self.rdf_timestep_start = tk.StringVar()
         self.rdf_timestep_end = tk.StringVar()
         ttk.Label(controls, text="Timestep start").pack(anchor="w")
-        ttk.Entry(controls, textvariable=self.rdf_timestep_start).pack(fill="x", pady=(0, 8))
+        start_entry = ttk.Entry(controls, textvariable=self.rdf_timestep_start)
+        start_entry.bind("<KeyRelease>", lambda _event: self._clear_rdf_exact_timesteps())
+        start_entry.pack(fill="x", pady=(0, 8))
         ttk.Label(controls, text="Timestep end").pack(anchor="w")
-        ttk.Entry(controls, textvariable=self.rdf_timestep_end).pack(fill="x", pady=(0, 8))
+        end_entry = ttk.Entry(controls, textvariable=self.rdf_timestep_end)
+        end_entry.bind("<KeyRelease>", lambda _event: self._clear_rdf_exact_timesteps())
+        end_entry.pack(fill="x", pady=(0, 8))
+        self.rdf_sampling_frequency = tk.StringVar(value="1")
+        ttk.Label(controls, text="Sampling frequency [timesteps]").pack(anchor="w")
+        sampling_entry = ttk.Entry(controls, textvariable=self.rdf_sampling_frequency)
+        sampling_entry.bind("<KeyRelease>", lambda _event: self._clear_rdf_exact_timesteps())
+        sampling_entry.pack(fill="x", pady=(0, 8))
         ttk.Button(controls, text="Last 5 timesteps", command=self._set_rdf_last_timesteps).pack(
             fill="x", pady=(0, 12)
         )
@@ -173,6 +275,8 @@ class RdfTabMixin:
         self.rdf_status = ttk.Label(self._rdf_plot_area, text="", wraplength=620, justify="left")
         self.rdf_status.pack(anchor="nw", padx=8, pady=8)
         self._set_rdf_last_timesteps()
+        self._update_rdf_molecule_availability()
+        self._update_rdf_particle_controls()
 
     def _plot_rdf(self) -> None:
         """Compute and plot RDF curves from the selected GUI values."""
@@ -181,19 +285,28 @@ class RdfTabMixin:
             simulations = self._selected_rdf_simulations()
             if not simulations:
                 raise ValueError("Select at least one simulation.")
-            element_a = self.rdf_element_a.get()
-            element_b = self.rdf_element_b.get()
-            if not element_a or not element_b:
-                raise ValueError("Select two elements.")
+            name_a, name_b, selection_arguments = self._rdf_particle_selection()
             start = int(self.rdf_timestep_start.get())
             end = int(self.rdf_timestep_end.get())
+            sampling_frequency = int(self.rdf_sampling_frequency.get())
+            if sampling_frequency <= 0:
+                raise ValueError("RDF sampling frequency must be a positive integer.")
             bin_width = float(self.rdf_bin_width.get())
 
-            results = compute_rdf(simulations, element_a, element_b, (start, end), bin_width)
+            results = compute_rdf(
+                simulations,
+                name_a,
+                name_b,
+                (start, end),
+                bin_width,
+                timesteps_by_simulation=self._rdf_exact_timesteps_for_plot(simulations),
+                sampling_frequency=sampling_frequency,
+                **selection_arguments,
+            )
             figures = plot_rdf(
                 results,
-                element_a,
-                element_b,
+                name_a,
+                name_b,
                 reference_lines=self._rdf_reference_lines(),
                 running_average_points=self._rdf_running_average_points(),
                 legend_location=self.rdf_legend_location.get(),
@@ -212,13 +325,7 @@ class RdfTabMixin:
                 background="#f8fafc" if self.rdf_theme.get() == "Bright" else "#0b1020"
             )
             self._rdf_scroll_canvas.yview_moveto(0)
-            used_timesteps = sorted({timestep for result in results for timestep in result.timesteps})
-            self.rdf_status.configure(
-                text=(
-                    f"Used {len(used_timesteps)} timestep(s): "
-                    f"{used_timesteps[0]} to {used_timesteps[-1]}"
-                )
-            )
+            self.rdf_status.configure(text=self._rdf_status_text(results))
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("RDF plotting failed", str(exc))
 
@@ -236,6 +343,131 @@ class RdfTabMixin:
         """Return trajectory-capable simulations selected in the RDF listbox."""
 
         return [self._rdf_simulations[index] for index in self.rdf_sim_list.curselection()]
+
+    def _build_rdf_particle_fields(
+        self,
+        parent,
+        selector_label: str,
+        selector_a,
+        selector_b,
+        name_a,
+        name_b,
+    ):
+        """Build paired selector/name entries for atom or molecule RDFs."""
+
+        fields = ttk.Frame(parent)
+        ttk.Label(fields, text=selector_label).grid(row=0, column=1, sticky="w")
+        ttk.Label(fields, text="Name").grid(row=0, column=2, sticky="w")
+        for row, label, selector, name in (
+            (1, "A", selector_a, name_a),
+            (2, "B", selector_b, name_b),
+        ):
+            ttk.Label(fields, text=label).grid(row=row, column=0, sticky="w", padx=(0, 4))
+            ttk.Entry(fields, textvariable=selector, width=16).grid(
+                row=row,
+                column=1,
+                sticky="ew",
+                padx=(0, 4),
+                pady=2,
+            )
+            ttk.Entry(fields, textvariable=name, width=11).grid(
+                row=row,
+                column=2,
+                sticky="ew",
+                pady=2,
+            )
+        fields.columnconfigure(1, weight=2)
+        fields.columnconfigure(2, weight=1)
+        return fields
+
+    def _rdf_simulation_selection_changed(self) -> None:
+        """Refresh timestep defaults and molecule-mode availability."""
+
+        self._set_rdf_last_timesteps()
+        self._update_rdf_molecule_availability()
+
+    def _update_rdf_molecule_availability(self) -> None:
+        """Enable molecule RDF only when every selected trajectory has ``mol``."""
+
+        simulations = self._selected_rdf_simulations()
+        unavailable = [
+            simulation.index
+            for simulation in simulations
+            if not self._rdf_trajectory_has_molecule_ids(simulation)
+        ]
+        molecule_mode_available = bool(simulations) and not unavailable
+        self.rdf_molecule_mode_button.configure(
+            state="normal" if molecule_mode_available else "disabled"
+        )
+        if unavailable:
+            indexes = ", ".join(str(index) for index in unavailable)
+            availability = f"Molecule RDF unavailable: simulation(s) {indexes} lack a mol column."
+        elif not simulations:
+            availability = "Select a simulation to check molecule-ID availability."
+        else:
+            availability = "Molecule RDF available: all selected trajectories contain mol."
+        self.rdf_molecule_availability.configure(text=availability)
+        if not molecule_mode_available and self.rdf_particle_mode.get() == "molecule":
+            self.rdf_particle_mode.set("atom")
+        self._update_rdf_particle_controls()
+
+    def _rdf_trajectory_has_molecule_ids(self, simulation: LoadedSimulation) -> bool:
+        """Return cached first-frame ``mol`` column availability."""
+
+        if not hasattr(self, "_rdf_mol_column_by_simulation"):
+            self._rdf_mol_column_by_simulation = {}
+        if simulation.index not in self._rdf_mol_column_by_simulation:
+            if simulation.trajectory_path is None:
+                has_mol = False
+            else:
+                has_mol = "mol" in trajectory_atom_columns(simulation.trajectory_path)
+            self._rdf_mol_column_by_simulation[simulation.index] = has_mol
+        return self._rdf_mol_column_by_simulation[simulation.index]
+
+    def _update_rdf_particle_controls(self) -> None:
+        """Show the selector fields matching the current RDF particle mode."""
+
+        if not hasattr(self, "rdf_atom_fields"):
+            return
+        self.rdf_atom_fields.pack_forget()
+        self.rdf_molecule_fields.pack_forget()
+        selected_fields = (
+            self.rdf_molecule_fields
+            if self.rdf_particle_mode.get() == "molecule"
+            else self.rdf_atom_fields
+        )
+        selected_fields.pack(fill="x", pady=(0, 6), before=self.rdf_molecule_availability)
+
+    def _rdf_particle_selection(self) -> tuple[str, str, dict]:
+        """Validate GUI particle fields and return RDF calculation arguments."""
+
+        if self.rdf_particle_mode.get() == "molecule":
+            self._update_rdf_molecule_availability()
+            if self.rdf_particle_mode.get() != "molecule":
+                raise ValueError("Molecule RDF requires a mol column in every selected trajectory.")
+            name_a = self.rdf_molecule_name_a.get().strip()
+            name_b = self.rdf_molecule_name_b.get().strip()
+            arguments = {
+                "molecule_ids_a": parse_rdf_ids(self.rdf_molecule_ids_a.get()),
+                "molecule_ids_b": parse_rdf_ids(self.rdf_molecule_ids_b.get()),
+            }
+        else:
+            name_a = self.rdf_atom_name_a.get().strip()
+            name_b = self.rdf_atom_name_b.get().strip()
+            atom_types_a = parse_rdf_ids(self.rdf_atom_types_a.get())
+            atom_types_b = parse_rdf_ids(self.rdf_atom_types_b.get())
+            known_types = set(self.project.config.type_to_element)
+            unknown_types = sorted((set(atom_types_a) | set(atom_types_b)) - known_types)
+            if unknown_types:
+                values = ", ".join(str(atom_type) for atom_type in unknown_types)
+                raise ValueError(f"Unknown RDF atom type(s): {values}.")
+            arguments = {
+                "atom_types_a": atom_types_a,
+                "atom_types_b": atom_types_b,
+            }
+        if not name_a or not name_b:
+            raise ValueError("Enter a name for both RDF particle selections.")
+        return name_a, name_b, arguments
 
     def _rdf_reference_lines(self) -> tuple[list[float], list[float]]:
         """Return vertical and horizontal reference lines for the RDF plot."""
@@ -267,22 +499,74 @@ class RdfTabMixin:
         return start, end
 
     def _set_rdf_last_timesteps(self) -> None:
-        """Populate RDF timestep entries with the last five selected timesteps."""
+        """Populate RDF timestep entries from the last five steps in each simulation."""
 
-        timesteps = sorted(
-            {
-                timestep
-                for simulation in self._selected_rdf_simulations()
-                for timestep in self._rdf_timesteps(simulation)
-            }
-        )
-        if not timesteps:
+        selected_by_simulation = {}
+        for simulation in self._selected_rdf_simulations():
+            timesteps = self._rdf_timesteps(simulation)
+            if timesteps:
+                selected_by_simulation[simulation.index] = timesteps[-5:]
+        if not selected_by_simulation:
+            self._rdf_exact_timesteps_by_simulation = None
+            self._rdf_exact_timestep_entry_values = None
             self.rdf_timestep_start.set("")
             self.rdf_timestep_end.set("")
             return
-        selected = timesteps[-5:]
-        self.rdf_timestep_start.set(str(selected[0]))
-        self.rdf_timestep_end.set(str(selected[-1]))
+        selected = sorted(
+            timestep
+            for timesteps in selected_by_simulation.values()
+            for timestep in timesteps
+        )
+        start = str(selected[0])
+        end = str(selected[-1])
+        self._rdf_exact_timesteps_by_simulation = selected_by_simulation
+        self._rdf_exact_timestep_entry_values = (
+            start,
+            end,
+            self.rdf_sampling_frequency.get(),
+        )
+        self.rdf_timestep_start.set(start)
+        self.rdf_timestep_end.set(end)
+
+    def _clear_rdf_exact_timesteps(self) -> None:
+        """Switch RDF plotting back to the inclusive range in the entry fields."""
+
+        self._rdf_exact_timesteps_by_simulation = None
+        self._rdf_exact_timestep_entry_values = None
+
+    def _rdf_exact_timesteps_for_plot(
+        self,
+        simulations: list[LoadedSimulation],
+    ) -> dict[int, list[int]] | None:
+        """Return exact per-simulation timesteps when the Last-5 fields still match."""
+
+        if self._rdf_exact_timesteps_by_simulation is None:
+            return None
+        if self._rdf_exact_timestep_entry_values != (
+            self.rdf_timestep_start.get(),
+            self.rdf_timestep_end.get(),
+            self.rdf_sampling_frequency.get(),
+        ):
+            self._clear_rdf_exact_timesteps()
+            return None
+        selected_indexes = {simulation.index for simulation in simulations}
+        exact_indexes = set(self._rdf_exact_timesteps_by_simulation)
+        if selected_indexes != exact_indexes:
+            self._clear_rdf_exact_timesteps()
+            return None
+        return self._rdf_exact_timesteps_by_simulation
+
+    def _rdf_status_text(self, results) -> str:
+        """Summarize the timesteps that contributed to the plotted RDF curves."""
+
+        parts = []
+        for result in results:
+            timesteps = result.timesteps
+            parts.append(
+                f"Simulation {result.simulation_index}: {len(timesteps)} timestep(s), "
+                f"{timesteps[0]} to {timesteps[-1]}"
+            )
+        return "Used " + "; ".join(parts)
 
     def _rdf_timesteps(self, simulation: LoadedSimulation) -> list[int]:
         """Return cached trajectory timesteps for one simulation."""

@@ -55,7 +55,7 @@ def plot_rdf(
             ax.plot(
                 result.r,
                 running_average,
-                color=color,
+                color=_inverse_hex_color(color),
                 linestyle="--",
                 linewidth=1.8,
                 label=f"Simulation {result.simulation_index} Avg",

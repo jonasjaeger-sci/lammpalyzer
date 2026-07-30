@@ -355,11 +355,19 @@ The GUI contains tabs for common analysis tasks:
 - `Thermodynamic data`: plot selected thermodynamic parameters, choose
   simulations, edit legend labels, and adjust x/y axis ranges. Existing plots
   update automatically when either range is edited or reset.
-- `Radial distribution`: calculate RDF curves for selected element pairs such as
-  `Li-Li` or `Li-O`, with selectable simulations, timestep range, bin width,
-  optional point-based running averages, and a second cross-simulation mean and
-  standard-deviation plot over the shared radial range. A dropdown controls the
-  legend placement in both plots.
+- `Radial distribution`: calculate RDF curves from explicit atom-type groups,
+  including multiple force-field types for the same element, or from
+  mass-weighted molecular centers of mass. Molecule mode is enabled only when
+  every selected trajectory contains a `mol` atom-table column. Atom types and
+  molecule IDs accept lists such as `1,3,4`; inclusive `*` ranges such as
+  `1*11,15,17` are also supported. The panel includes the configured atom-type
+  mapping and editable names for both RDF selections. Simulations, timestep
+  range, positive sampling frequency, bin width, optional point-based running
+  averages, and a second cross-simulation mean and standard-deviation plot
+  remain selectable. Running-average curves use the inverse color of their raw
+  RDF curve for clearer visual separation. Sampling is anchored at the entered
+  start timestep, so `400000` through `416000` with frequency `1000` uses
+  `400000, 401000, ..., 416000`.
 - `Structural relaxation`: calculate a preliminary static structure factor
   `S(q)` from uniformly sampled production frames, then use the first `S(q)`
   peak to calculate the incoherent scattering function `F_s(q,t)`. Select one

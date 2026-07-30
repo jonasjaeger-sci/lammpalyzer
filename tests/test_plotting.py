@@ -623,6 +623,8 @@ def test_plot_rdf_running_average_smooths_each_selected_curve():
     ]
     np.testing.assert_allclose(selected_axis.lines[1].get_ydata(), [1.0, 2.0, 4.0])
     assert selected_axis.lines[1].get_linestyle() == "--"
+    assert selected_axis.lines[1].get_color() == "#b3360f"
+    assert selected_axis.lines[1].get_color() != selected_axis.lines[0].get_color()
     assert selected_axis.get_legend()._loc == 6
     assert len(figures[1].axes[0].lines) == 1
     assert figures[1].axes[0].get_legend()._loc == 6
