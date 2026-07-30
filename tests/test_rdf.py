@@ -67,6 +67,7 @@ ITEM: ATOMS id type q xu yu zu
 
     assert list_lammpstrj_timesteps(trajectory) == [0, 10]
     assert len(results) == 1
+    assert results[0].label == "Li - O"
     assert results[0].timesteps == [0, 10]
     assert np.all(np.isfinite(results[0].g_r))
     assert np.any(results[0].g_r > 0)

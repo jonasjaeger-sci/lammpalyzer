@@ -62,6 +62,7 @@ class LammpalyzeGUI(
         self._rdf_timesteps_by_simulation: dict[int, list[int]] = {}
         self._rdf_exact_timesteps_by_simulation: dict[int, list[int]] | None = None
         self._rdf_exact_timestep_entry_values: tuple[str, str, str] | None = None
+        self._rdf_snapshot_results = []
         self._structure_canvases: list[FigureCanvasTkAgg] = []
         self._structure_timesteps_by_simulation: dict[int, list[int]] = {}
         self._molecule_photo = None

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -39,13 +41,19 @@ def plot_rdf(
     style = _theme_colors(theme)
     fig, ax = plt.subplots(figsize=(8.5, 4.8), facecolor=style["figure"])
     line_colors = _line_colors(len(results), gradient_colors)
-    for result, color in zip(results, line_colors, strict=False):
+    curve_labels = _rdf_curve_labels(results, f"{element_a} - {element_b}")
+    for result, color, curve_label in zip(
+        results,
+        line_colors,
+        curve_labels,
+        strict=False,
+    ):
         ax.plot(
             result.r,
             result.g_r,
             color=color,
             linewidth=2.0,
-            label=f"Simulation {result.simulation_index}",
+            label=curve_label,
         )
         if running_average_points is not None:
             running_average = pd.Series(result.g_r).rolling(
@@ -58,12 +66,12 @@ def plot_rdf(
                 color=_inverse_hex_color(color),
                 linestyle="--",
                 linewidth=1.8,
-                label=f"Simulation {result.simulation_index} Avg",
+                label=f"{curve_label} Avg",
             )
 
     _style_axes(
         ax,
-        f"RDF {element_a}-{element_b}",
+        "Normalized RDF",
         "g(r)",
         style,
         x_label="r [A]",
@@ -78,8 +86,6 @@ def plot_rdf(
     try:
         averaged = _plot_rdf_average(
             results,
-            element_a,
-            element_b,
             reference_lines=reference_lines,
             legend_location=legend_location,
             theme=theme,
@@ -93,8 +99,6 @@ def plot_rdf(
 
 def _plot_rdf_average(
     results: list[RDFResult],
-    element_a: str,
-    element_b: str,
     *,
     reference_lines: ReferenceLines | None,
     legend_location: str,
@@ -135,7 +139,7 @@ def _plot_rdf_average(
     )
     _style_axes(
         ax,
-        f"Average RDF {element_a}-{element_b}",
+        "Average normalized RDF",
         "g(r)",
         style,
         x_label="r [A]",
@@ -147,3 +151,28 @@ def _plot_rdf_average(
         text.set_color(style["text"])
     fig.tight_layout()
     return fig
+
+
+def _rdf_curve_labels(results: list[RDFResult], default_label: str) -> list[str]:
+    """Return distinct legend labels while preserving user-provided pair names."""
+
+    base_labels = [result.label or default_label for result in results]
+    base_counts = Counter(base_labels)
+    candidates = [
+        (
+            f"{label} (Simulation {result.simulation_index})"
+            if base_counts[label] > 1
+            else label
+        )
+        for result, label in zip(results, base_labels, strict=True)
+    ]
+    candidate_counts = Counter(candidates)
+    occurrences = Counter()
+    labels = []
+    for candidate in candidates:
+        occurrences[candidate] += 1
+        if candidate_counts[candidate] > 1:
+            labels.append(f"{candidate} [{occurrences[candidate]}]")
+        else:
+            labels.append(candidate)
+    return labels

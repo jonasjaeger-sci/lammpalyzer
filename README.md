@@ -364,10 +364,14 @@ The GUI contains tabs for common analysis tasks:
   mapping and editable names for both RDF selections. Simulations, timestep
   range, positive sampling frequency, bin width, optional point-based running
   averages, and a second cross-simulation mean and standard-deviation plot
-  remain selectable. Running-average curves use the inverse color of their raw
-  RDF curve for clearer visual separation. Sampling is anchored at the entered
-  start timestep, so `400000` through `416000` with frequency `1000` uses
-  `400000, 401000, ..., 416000`.
+  remain selectable. Selection names form the regular-plot legend label, for
+  example `Na+ - PF6-`. Snapshot mode appends each newly calculated selection
+  to the existing normalized RDF plot; its average plot is rebuilt from every
+  currently displayed curve. With snapshot mode disabled, a new calculation
+  replaces the displayed curves. Running-average curves use the inverse color
+  of their raw RDF curve for clearer visual separation. Sampling is anchored at
+  the entered start timestep, so `400000` through `416000` with frequency
+  `1000` uses `400000, 401000, ..., 416000`.
 - `Structural relaxation`: calculate a preliminary static structure factor
   `S(q)` from uniformly sampled production frames, then use the first `S(q)`
   peak to calculate the incoherent scattering function `F_s(q,t)`. Select one

@@ -22,11 +22,22 @@ from lammpalyze.gui.helpers import (
     suffixed_image_output_path,
 )
 from lammpalyze.gui.pathway_graph import build_pathway_graph, pathway_graph_choices, pathway_graph_image_extent
+from lammpalyze.gui.rdf_tab import rdf_snapshot_results
 from lammpalyze.gui.canvas import _format_hover_value, _nearest_line_point
 from lammpalyze.gui.thermo_tab import apply_thermo_axis_ranges
 from lammpalyze.parsers import ComponentProperties
 from lammpalyze.plotting import PlotSettings
 from lammpalyze.reactions import ReactionPath
+
+
+def test_rdf_snapshot_results_appends_or_replaces_curves():
+    """Keep prior RDF curves only while snapshot mode is enabled."""
+
+    existing = ["first"]
+    new_results = ["second"]
+
+    assert rdf_snapshot_results(existing, new_results, True) == ["first", "second"]
+    assert rdf_snapshot_results(existing, new_results, False) == ["second"]
 
 
 def test_molecule_render_size_follows_available_area():

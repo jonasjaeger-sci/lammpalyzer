@@ -8,8 +8,20 @@ from tkinter import messagebox, ttk
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.gui.helpers import LEGEND_PLACEMENTS, parse_reference_lines
 from lammpalyze.parsers import trajectory_atom_columns
-from lammpalyze.rdf import compute_rdf, parse_rdf_ids
+from lammpalyze.rdf import RDFResult, compute_rdf, parse_rdf_ids
 from lammpalyze.rdf_plotting import plot_rdf
+
+
+def rdf_snapshot_results(
+    existing: list[RDFResult],
+    new_results: list[RDFResult],
+    snapshot_enabled: bool,
+) -> list[RDFResult]:
+    """Append new RDF curves in snapshot mode, otherwise replace the plot."""
+
+    if snapshot_enabled:
+        return [*existing, *new_results]
+    return list(new_results)
 
 
 class RdfTabMixin:
@@ -269,6 +281,12 @@ class RdfTabMixin:
         self.rdf_horizontal_lines = tk.StringVar()
         ttk.Entry(controls, textvariable=self.rdf_horizontal_lines).pack(fill="x", pady=(0, 12))
 
+        self.rdf_snapshot_enabled = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            controls,
+            text="Snapshot mode: append new curves",
+            variable=self.rdf_snapshot_enabled,
+        ).pack(anchor="w", pady=(0, 8))
         ttk.Button(controls, text="Plot", command=self._plot_rdf).pack(fill="x")
         ttk.Button(controls, text="Export PNG", command=self._save_rdf_plot).pack(fill="x", pady=(8, 0))
 
@@ -303,8 +321,13 @@ class RdfTabMixin:
                 sampling_frequency=sampling_frequency,
                 **selection_arguments,
             )
-            figures = plot_rdf(
+            displayed_results = rdf_snapshot_results(
+                self._rdf_snapshot_results,
                 results,
+                self.rdf_snapshot_enabled.get(),
+            )
+            figures = plot_rdf(
+                displayed_results,
                 name_a,
                 name_b,
                 reference_lines=self._rdf_reference_lines(),
@@ -314,6 +337,7 @@ class RdfTabMixin:
                 gradient_colors=self._rdf_gradient_colors(),
                 plot_settings=self._plot_settings(),
             )
+            self._rdf_snapshot_results = displayed_results
             for canvas in self._rdf_canvases:
                 self._destroy_canvas(canvas)
             self._rdf_canvases = []
@@ -325,7 +349,7 @@ class RdfTabMixin:
                 background="#f8fafc" if self.rdf_theme.get() == "Bright" else "#0b1020"
             )
             self._rdf_scroll_canvas.yview_moveto(0)
-            self.rdf_status.configure(text=self._rdf_status_text(results))
+            self.rdf_status.configure(text=self._rdf_status_text(displayed_results))
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("RDF plotting failed", str(exc))
 
@@ -562,8 +586,10 @@ class RdfTabMixin:
         parts = []
         for result in results:
             timesteps = result.timesteps
+            selection = result.label or "RDF"
             parts.append(
-                f"Simulation {result.simulation_index}: {len(timesteps)} timestep(s), "
+                f"{selection}, simulation {result.simulation_index}: "
+                f"{len(timesteps)} timestep(s), "
                 f"{timesteps[0]} to {timesteps[-1]}"
             )
         return "Used " + "; ".join(parts)

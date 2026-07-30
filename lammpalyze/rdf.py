@@ -107,6 +107,7 @@ class RDFResult:
     r: np.ndarray
     g_r: np.ndarray
     timesteps: list[int]
+    label: str | None = None
 
 
 def compute_rdf(
@@ -203,6 +204,7 @@ def compute_rdf(
                 r=bin_centers,
                 g_r=np.mean(np.vstack(frame_curves), axis=0),
                 timesteps=timesteps,
+                label=f"{element_a} - {element_b}",
             )
         )
 

@@ -588,12 +588,41 @@ def test_plot_rdf_returns_selected_and_cross_simulation_average_figures():
     assert len(figures) == 2
     assert len(figures[0].axes[0].lines) == 2
     assert [line.get_label() for line in figures[0].axes[0].lines] == [
-        "Simulation 1",
-        "Simulation 2",
+        "Li - O (Simulation 1)",
+        "Li - O (Simulation 2)",
     ]
     np.testing.assert_allclose(figures[1].axes[0].lines[0].get_ydata(), [1.5, 2.5])
     assert len(figures[1].axes[0].collections) == 1
-    assert figures[1].axes[0].get_title() == "Average RDF Li-O"
+    assert figures[0].axes[0].get_title() == "Normalized RDF"
+    assert figures[1].axes[0].get_title() == "Average normalized RDF"
+
+
+def test_plot_rdf_uses_user_pair_names_as_snapshot_legend_labels():
+    """Use each stored RDF selection name in the regular-plot legend."""
+
+    results = [
+        RDFResult(
+            simulation_index=1,
+            r=np.array([0.5, 1.5]),
+            g_r=np.array([1.0, 2.0]),
+            timesteps=[0],
+            label="Na+ - PF6-",
+        ),
+        RDFResult(
+            simulation_index=1,
+            r=np.array([0.5, 1.5]),
+            g_r=np.array([2.0, 3.0]),
+            timesteps=[10],
+            label="EC - EC",
+        ),
+    ]
+
+    figures = plot_rdf(results, "unused A", "unused B")
+
+    assert [line.get_label() for line in figures[0].axes[0].lines] == [
+        "Na+ - PF6-",
+        "EC - EC",
+    ]
 
 
 def test_plot_rdf_running_average_smooths_each_selected_curve():
@@ -618,8 +647,8 @@ def test_plot_rdf_running_average_smooths_each_selected_curve():
 
     selected_axis = figures[0].axes[0]
     assert [line.get_label() for line in selected_axis.lines] == [
-        "Simulation 1",
-        "Simulation 1 Avg",
+        "Li - O",
+        "Li - O Avg",
     ]
     np.testing.assert_allclose(selected_axis.lines[1].get_ydata(), [1.0, 2.0, 4.0])
     assert selected_axis.lines[1].get_linestyle() == "--"
