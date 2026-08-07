@@ -7,7 +7,13 @@ import pytest
 
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.parsers import list_lammpstrj_timesteps
-from lammpalyze.rdf import compute_rdf, parse_rdf_ids
+from lammpalyze.rdf import (
+    _effective_shell_volumes,
+    _minimum_image_distances,
+    _radial_bins,
+    compute_rdf,
+    parse_rdf_ids,
+)
 
 
 def test_parse_rdf_ids_accepts_lists_and_star_ranges():
@@ -230,7 +236,103 @@ ITEM: ATOMS id type q xu yu zu
 
     assert len(results) == 1
     assert np.all(np.isfinite(results[0].g_r))
-    assert np.any(results[0].g_r > 0)
+    assert results[0].g_r[0] == 0.0
+    exact_shell_volume = 4.0 * np.pi * (2.0**3 - 1.0**3) / 3.0
+    assert results[0].g_r[1] == pytest.approx(1000.0 / exact_shell_volume)
+    assert np.count_nonzero(results[0].g_r) == 1
+
+
+def test_rdf_uses_exact_and_fixed_boundary_corrected_shell_volumes():
+    """Normalize full and boundary-truncated spherical shells exactly."""
+
+    bins = np.array([0.0, 1.0, 2.0])
+    box_lengths = np.array([10.0, 10.0, 10.0])
+
+    periodic_shells = _effective_shell_volumes(bins, box_lengths, ("p", "p", "p"))
+    fixed_z_shells = _effective_shell_volumes(bins, box_lengths, ("p", "p", "f"))
+    fixed_xy_shells = _effective_shell_volumes(bins, box_lengths, ("f", "f", "p"))
+    fixed_xyz_shells = _effective_shell_volumes(bins, box_lengths, ("f", "f", "f"))
+
+    exact_periodic = 4.0 * np.pi * np.diff(bins**3) / 3.0
+    fixed_z_balls = 4.0 * np.pi * bins**3 / 3.0 - np.pi * bins**4 / 20.0
+    fixed_xy_balls = (
+        4.0 * np.pi * bins**3 / 3.0
+        - np.pi * bins**4 / 10.0
+        + 8.0 * bins**5 / 1500.0
+    )
+    fixed_xyz_balls = (
+        4.0 * np.pi * bins**3 / 3.0
+        - 3.0 * np.pi * bins**4 / 20.0
+        + 24.0 * bins**5 / 1500.0
+        - bins**6 / 6000.0
+    )
+    assert periodic_shells == pytest.approx(exact_periodic)
+    assert fixed_z_shells == pytest.approx(np.diff(fixed_z_balls))
+    assert fixed_xy_shells == pytest.approx(np.diff(fixed_xy_balls))
+    assert fixed_xyz_shells == pytest.approx(np.diff(fixed_xyz_balls))
+
+
+def test_minimum_image_wraps_only_periodic_axes():
+    """Keep long displacements across fixed boundaries while wrapping periodic ones."""
+
+    origin = np.array([[0.1, 0.1, 0.1]])
+    across_x = np.array([[9.9, 0.1, 0.1]])
+    across_z = np.array([[0.1, 0.1, 9.9]])
+    box_lengths = np.array([10.0, 10.0, 10.0])
+
+    x_distance = _minimum_image_distances(origin, across_x, box_lengths, ("p", "p", "f"))
+    z_distance = _minimum_image_distances(origin, across_z, box_lengths, ("p", "p", "f"))
+
+    assert x_distance[0, 0] == pytest.approx(0.2)
+    assert z_distance[0, 0] == pytest.approx(9.8)
+
+
+def test_compute_rdf_respects_fixed_boundary_axes(tmp_path: Path):
+    """Do not count particles across opposite faces of a fixed axis as neighbors."""
+
+    trajectory = tmp_path / "fixed_z.lammpstrj"
+    trajectory.write_text(
+        """ITEM: TIMESTEP
+0
+ITEM: NUMBER OF ATOMS
+2
+ITEM: BOX BOUNDS pp pp ff
+0 10
+0 10
+0 10
+ITEM: ATOMS id type x y z
+1 1 0.1 0.1 0.1
+2 2 0.1 0.1 9.9
+""",
+        encoding="utf-8",
+    )
+    periodic = LoadedSimulation(
+        index=1,
+        trajectory_path=trajectory,
+        type_to_element={1: "Li", 2: "O"},
+    )
+    fixed_z = LoadedSimulation(
+        index=2,
+        trajectory_path=trajectory,
+        type_to_element={1: "Li", 2: "O"},
+        boundary=("p", "p", "f"),
+    )
+
+    periodic_rdf = compute_rdf([periodic], "Li", "O", (0, 0), 1.0)[0]
+    fixed_rdf = compute_rdf([fixed_z], "Li", "O", (0, 0), 1.0)[0]
+
+    assert periodic_rdf.g_r[0] > 0.0
+    assert np.all(fixed_rdf.g_r == 0.0)
+
+
+def test_radial_bins_stop_exactly_at_supported_radius():
+    """Clip the final RDF bin instead of extending beyond the valid radius."""
+
+    bins = _radial_bins(5.0, 0.3)
+
+    assert bins[-1] == 5.0
+    assert np.all(bins <= 5.0)
+    assert np.all(np.diff(bins) > 0.0)
 
 
 def test_compute_rdf_selects_explicit_atom_types_with_the_same_element(tmp_path: Path):

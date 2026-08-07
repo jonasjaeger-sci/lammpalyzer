@@ -162,9 +162,7 @@ def compute_rdf(
         if r_max <= 0:
             raise ValueError(f"Simulation {simulation.index} has invalid trajectory box dimensions.")
 
-        bins = np.arange(0.0, r_max + bin_width, bin_width)
-        if len(bins) < 2:
-            bins = np.array([0.0, r_max])
+        bins = _radial_bins(r_max, bin_width)
         bin_centers = (bins[:-1] + bins[1:]) / 2.0
 
         frame_curves = []
@@ -184,6 +182,7 @@ def compute_rdf(
                 selection_mode=selection_mode,
                 selection_a=selection_a,
                 selection_b=selection_b,
+                boundary=simulation.boundary,
             )
             if curve is None:
                 continue
@@ -298,6 +297,32 @@ def _selected_timesteps(
     return sorted({int(timestep) for timestep in timesteps_by_simulation.get(simulation_index, [])})
 
 
+def _radial_bins(r_max: float, bin_width: float) -> np.ndarray:
+    """Return bin edges ending exactly at, and never beyond, ``r_max``."""
+
+    full_bins = int(np.floor(r_max / bin_width))
+    bins = np.arange(full_bins + 1, dtype=float) * bin_width
+    if np.isclose(bins[-1], r_max, rtol=1e-12, atol=1e-14):
+        bins[-1] = r_max
+    else:
+        bins = np.append(bins, r_max)
+    return bins
+
+
+def _frame_r_max(
+    frame: TrajectoryFrame,
+    boundary: tuple[str, str, str],
+) -> float:
+    """Return the largest radius supported by the frame and boundary modes."""
+
+    box_lengths = _box_lengths(frame)
+    limits = np.array(
+        [length / 2.0 if mode == "p" else length for length, mode in zip(box_lengths, boundary)],
+        dtype=float,
+    )
+    return float(np.min(limits))
+
+
 def _selected_r_max(
     simulation: LoadedSimulation,
     timestep_range: tuple[int, int],
@@ -313,7 +338,7 @@ def _selected_r_max(
         selected_timesteps,
         sampling_frequency,
     ):
-        frame_r_max = float(np.min(_box_lengths(frame))) / 2.0
+        frame_r_max = _frame_r_max(frame, simulation.boundary)
         r_max = frame_r_max if r_max is None else min(r_max, frame_r_max)
     return r_max
 
@@ -348,6 +373,7 @@ def _frame_rdf(
     selection_mode: str = "element",
     selection_a: set[int] | None = None,
     selection_b: set[int] | None = None,
+    boundary: tuple[str, str, str] = ("p", "p", "p"),
 ) -> np.ndarray | None:
     """Compute the RDF contribution for one trajectory frame."""
 
@@ -359,6 +385,7 @@ def _frame_rdf(
         element_a,
         selection_mode,
         selection_a,
+        boundary,
     )
     particle_ids_b, positions_b = _selected_particle_positions(
         frame,
@@ -366,6 +393,7 @@ def _frame_rdf(
         element_b,
         selection_mode,
         selection_b,
+        boundary,
     )
     n_a = len(positions_a)
     n_b = len(positions_b)
@@ -373,20 +401,16 @@ def _frame_rdf(
     if n_a == 0 or n_b == 0:
         return None
 
-    distances = _minimum_image_distances(positions_a, positions_b, box_lengths)
+    distances = _minimum_image_distances(positions_a, positions_b, box_lengths, boundary)
     eligible_pairs = particle_ids_a[:, np.newaxis] != particle_ids_b[np.newaxis, :]
     pair_count = int(np.count_nonzero(eligible_pairs))
     if pair_count == 0:
         return None
     distances = distances[eligible_pairs]
-    bulk_density = pair_count / (n_a * volume)
 
     counts, _ = np.histogram(distances, bins=bins)
-    bin_widths = np.diff(bins)
-    bin_centers = (bins[:-1] + bins[1:]) / 2.0
-    shells = 4.0 * np.pi * bin_centers**2 * bin_widths
-    local_density = counts / (n_a * shells)
-    return local_density / bulk_density
+    shells = _effective_shell_volumes(bins, box_lengths, boundary)
+    return counts * volume / (pair_count * shells)
 
 
 def _selected_particle_positions(
@@ -395,11 +419,17 @@ def _selected_particle_positions(
     element: str,
     selection_mode: str,
     selection: set[int] | None,
+    boundary: tuple[str, str, str],
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return stable particle IDs and positions for one RDF selection."""
 
     if selection_mode == "molecule":
-        return _molecule_centers_of_mass(frame, type_to_element, selection or set())
+        return _molecule_centers_of_mass(
+            frame,
+            type_to_element,
+            selection or set(),
+            boundary,
+        )
     atoms = (
         [
             atom
@@ -423,6 +453,7 @@ def _molecule_centers_of_mass(
     frame: TrajectoryFrame,
     type_to_element: dict[int, str],
     molecule_ids: set[int],
+    boundary: tuple[str, str, str],
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return selected molecule IDs and periodic centers of mass."""
 
@@ -439,7 +470,12 @@ def _molecule_centers_of_mass(
 
     selected_ids = sorted(atoms_by_molecule)
     centers = [
-        _periodic_center_of_mass(atoms_by_molecule[molecule_id], frame, type_to_element)
+        _periodic_center_of_mass(
+            atoms_by_molecule[molecule_id],
+            frame,
+            type_to_element,
+            boundary,
+        )
         for molecule_id in selected_ids
     ]
     return np.array(selected_ids, dtype=int), np.array(centers, dtype=float).reshape((-1, 3))
@@ -449,6 +485,7 @@ def _periodic_center_of_mass(
     atoms,
     frame: TrajectoryFrame,
     type_to_element: dict[int, str],
+    boundary: tuple[str, str, str],
 ) -> np.ndarray:
     """Calculate a molecule COM after unwrapping atoms around a reference atom."""
 
@@ -456,14 +493,20 @@ def _periodic_center_of_mass(
     reference = np.array([atoms[0].x, atoms[0].y, atoms[0].z], dtype=float)
     positions = np.array([[atom.x, atom.y, atom.z] for atom in atoms], dtype=float)
     displacement = positions - reference
-    displacement -= box_lengths * np.round(displacement / box_lengths)
+    periodic = np.array([mode == "p" for mode in boundary], dtype=bool)
+    displacement[:, periodic] -= box_lengths[periodic] * np.round(
+        displacement[:, periodic] / box_lengths[periodic]
+    )
     unwrapped = reference + displacement
     masses = np.array(
         [_atom_mass(atom, type_to_element) for atom in atoms],
         dtype=float,
     )
     center = np.average(unwrapped, axis=0, weights=masses)
-    return frame.bounds[:, 0] + (center - frame.bounds[:, 0]) % box_lengths
+    center[periodic] = frame.bounds[periodic, 0] + (
+        center[periodic] - frame.bounds[periodic, 0]
+    ) % box_lengths[periodic]
+    return center
 
 
 def _atom_mass(atom, type_to_element: dict[int, str]) -> float:
@@ -499,15 +542,57 @@ def _positions_for_element(
     )
 
 
+def _effective_shell_volumes(
+    bins: np.ndarray,
+    box_lengths: np.ndarray,
+    boundary: tuple[str, str, str],
+) -> np.ndarray:
+    """Return exact shell volumes with finite-window corrections on fixed axes.
+
+    For a fixed axis of length ``L``, a displacement ``d`` is possible for a
+    fraction ``1 - abs(d) / L`` of uniformly distributed particle origins.
+    Integrating the product of those factors over a ball gives its effective
+    volume. Taking differences between adjacent balls gives the normalization
+    for each radial shell.
+    """
+
+    radii = np.asarray(bins, dtype=float)
+    inverse_fixed_lengths = np.array(
+        [1.0 / length for length, mode in zip(box_lengths, boundary) if mode == "f"],
+        dtype=float,
+    )
+    first_order = float(np.sum(inverse_fixed_lengths))
+    second_order = float(
+        (first_order**2 - np.sum(inverse_fixed_lengths**2)) / 2.0
+    )
+    third_order = (
+        float(np.prod(inverse_fixed_lengths))
+        if len(inverse_fixed_lengths) == 3
+        else 0.0
+    )
+
+    ball_volumes = (
+        4.0 * np.pi * radii**3 / 3.0
+        - np.pi * first_order * radii**4 / 2.0
+        + 8.0 * second_order * radii**5 / 15.0
+        - third_order * radii**6 / 6.0
+    )
+    return np.diff(ball_volumes)
+
+
 def _minimum_image_distances(
     positions_a: np.ndarray,
     positions_b: np.ndarray,
     box_lengths: np.ndarray,
+    boundary: tuple[str, str, str] = ("p", "p", "p"),
 ) -> np.ndarray:
-    """Return pair distances under periodic minimum-image wrapping."""
+    """Return pair distances, wrapping only axes configured as periodic."""
 
     displacement = positions_a[:, np.newaxis, :] - positions_b[np.newaxis, :, :]
-    displacement -= box_lengths * np.round(displacement / box_lengths)
+    periodic = np.array([mode == "p" for mode in boundary], dtype=bool)
+    displacement[:, :, periodic] -= box_lengths[periodic] * np.round(
+        displacement[:, :, periodic] / box_lengths[periodic]
+    )
     return np.linalg.norm(displacement, axis=2)
 
 

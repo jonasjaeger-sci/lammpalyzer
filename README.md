@@ -45,6 +45,8 @@ outputs. Relative paths are resolved relative to the input file.
 
 element_list = ["C", "H", "Li", "O"]
 
+boundary p p p
+
 bond_state_persistence_frames = 2
 bond_state_persistence_timesteps = 0
 bond_order_hysteresis = 0.05
@@ -114,6 +116,7 @@ ends that space-separated cutoff section.
 | `bond_order_hysteresis` | `0.0` | finite number >= 0 | Forms connectivity at `cutoff + value` and breaks it below `cutoff - value`. |
 | `structure_quality_mode` | `flag` | `keep`, `flag`, `exclude`, `skip` | Controls how suspicious components affect reporting and reaction analysis. |
 | `ion_charge_threshold` | `0.5` | finite number >= 0 | Component partial-charge magnitude used for cation/anion candidate labels; `0` disables labels. |
+| `boundary` | `p p p` | three values, each `p` or `f` | Sets periodic (`p`) or fixed/nonperiodic (`f`) behavior along x, y, and z. May be written as `boundary p p f` or `boundary = p p f`. |
 
 The two persistence requirements use **AND** logic. Leaving the first three
 keywords at `1`, `0`, and `0.0` reproduces unfiltered snapshot behavior.
@@ -347,6 +350,45 @@ If `-o/--output` is omitted, the output is written beside the input as
 `file_124770_125500.traj` or `file_124770_125500.log`. Trajectory frame headers
 and thermo table headers are preserved when present.
 
+### RDF shell normalization and boundaries
+
+RDF histograms use the exact three-dimensional volume of every spherical shell,
+
+```text
+4 pi / 3 * (r_outer^3 - r_inner^3)
+```
+
+rather than the thin-shell approximation `4 pi * r_center^2 * bin_width`.
+The difference is most important in the first few bins or when using a coarse
+bin width. The final bin is shortened when necessary so it ends at the largest
+supported radius instead of extending beyond it.
+
+The optional project-level `boundary` setting controls RDF distance wrapping.
+For example,
+
+```text
+boundary p p f
+```
+
+uses minimum-image wrapping along x and y, but treats z as a fixed,
+nonperiodic direction. If `boundary` is omitted, `p p p` is used.
+
+Fixed boundaries also reduce the fraction of a radial shell that is accessible
+to a particle. Lammpalyze applies an analytic finite-window correction. For a
+displacement vector `d`, each fixed axis contributes the overlap factor
+`1 - abs(d_i) / L_i`; the product of those factors is integrated over the exact
+spherical shell. Consequently a uniform ideal gas remains normalized to
+`g(r) = 1` for any combination of `p` and `f`. The maximum radius is limited to
+half the box length along periodic axes and one box length along fixed axes,
+using the most restrictive axis and frame.
+
+This correction removes finite-box geometric bias, but it cannot turn a truly
+inhomogeneous confined system into a homogeneous bulk system. If density varies
+systematically with distance from a wall or surface, the resulting RDF is a
+global, window-corrected pair correlation that mixes those density gradients
+with local structure. Boundary-aware RDFs currently assume an orthorhombic box;
+triclinic tilt factors are not supported.
+
 ## GUI Overview
 
 The GUI contains tabs for common analysis tasks:
@@ -372,6 +414,7 @@ The GUI contains tabs for common analysis tasks:
   of their raw RDF curve for clearer visual separation. Sampling is anchored at
   the entered start timestep, so `400000` through `416000` with frequency
   `1000` uses `400000, 401000, ..., 416000`.
+
 - `Structural relaxation`: calculate a preliminary static structure factor
   `S(q)` from uniformly sampled production frames, then use the first `S(q)`
   peak to calculate the incoherent scattering function `F_s(q,t)`. Select one

@@ -23,6 +23,7 @@ DEFAULT_BOND_STATE_PERSISTENCE_TIMESTEPS = 0
 DEFAULT_BOND_ORDER_HYSTERESIS = 0.0
 DEFAULT_STRUCTURE_QUALITY_MODE = "flag"
 DEFAULT_ION_CHARGE_THRESHOLD = 0.5
+DEFAULT_BOUNDARY = ("p", "p", "p")
 STRUCTURE_QUALITY_MODES = {"keep", "flag", "exclude", "skip"}
 _BOND_ORDER_CUTOFF_HEADER_RE = re.compile(
     r"^\s*#?\s*bond[\s_-]+order[\s_-]+cutoffs?\s*$",
@@ -57,6 +58,7 @@ class LammpalyzeConfig:
     bond_order_hysteresis: float = DEFAULT_BOND_ORDER_HYSTERESIS
     structure_quality_mode: str = DEFAULT_STRUCTURE_QUALITY_MODE
     ion_charge_threshold: float = DEFAULT_ION_CHARGE_THRESHOLD
+    boundary: tuple[str, str, str] = DEFAULT_BOUNDARY
 
     @property
     def type_to_element(self) -> dict[int, str]:
@@ -120,6 +122,7 @@ def parse_input_file(input_file: str | Path) -> LammpalyzeConfig:
         DEFAULT_ION_CHARGE_THRESHOLD,
         minimum=0.0,
     )
+    boundary = _parse_boundary(assignments)
 
     indexes = sorted({idx for topic in grouped.values() for idx in topic})
     if not indexes:
@@ -151,7 +154,24 @@ def parse_input_file(input_file: str | Path) -> LammpalyzeConfig:
         bond_order_hysteresis=hysteresis,
         structure_quality_mode=quality_mode,
         ion_charge_threshold=ion_charge_threshold,
+        boundary=boundary,
     )
+
+
+def _parse_boundary(assignments: dict[str, str]) -> tuple[str, str, str]:
+    """Parse periodic/fixed boundary modes for the x, y, and z axes."""
+
+    raw_value = assignments.get("boundary")
+    if raw_value is None:
+        return DEFAULT_BOUNDARY
+    values = _strip_quotes(raw_value).replace(",", " ").split()
+    boundary = tuple(value.lower() for value in values)
+    if len(boundary) != 3 or any(value not in {"p", "f"} for value in boundary):
+        raise ValueError(
+            "boundary must contain exactly three values, each 'p' or 'f', "
+            f"received {raw_value!r}."
+        )
+    return boundary
 
 
 def _parse_int_setting(
@@ -327,6 +347,9 @@ def _read_assignments(path: Path) -> dict[str, str]:
                 continue
             match = assignment_re.match(line)
             if not match:
+                boundary_match = re.match(r"^boundary\s+(.+?)\s*$", line, re.IGNORECASE)
+                if boundary_match:
+                    assignments["boundary"] = boundary_match.group(1)
                 continue
             key, value = match.groups()
             if not value:

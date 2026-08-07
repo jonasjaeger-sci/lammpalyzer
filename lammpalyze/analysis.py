@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from lammpalyze.config import LammpalyzeConfig
+from lammpalyze.config import DEFAULT_BOUNDARY, LammpalyzeConfig
 from lammpalyze.parsers import (
     ChargeStatistics,
     ComponentProperties,
@@ -67,6 +67,7 @@ class LoadedSimulation:
     trajectory_path: Path | None = None
     bond_path: Path | None = None
     type_to_element: dict[int, str] | None = None
+    boundary: tuple[str, str, str] = DEFAULT_BOUNDARY
     _trajectory_frame_offsets: dict[int, int] | None = field(default=None, init=False, repr=False)
     _bond_frame_offsets: dict[int, int] | None = field(default=None, init=False, repr=False)
 
@@ -292,6 +293,7 @@ def load_project(
         loaded.trajectory_path = files.trajectory
         loaded.type_to_element = config.type_to_element
         loaded.structure_quality_mode = config.structure_quality_mode
+        loaded.boundary = config.boundary
 
         if files.species is not None:
             species, _, species_df = eval_species(files.species)

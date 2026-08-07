@@ -53,6 +53,22 @@ ITEM: ENTRIES index id1 id2 distance
     assert simulation.msd_df["c_msd_C[4]"].tolist() == [0.0, 0.5]
 
 
+def test_load_project_propagates_boundary_modes(tmp_path: Path):
+    """Attach the configured boundary behavior to loaded simulations."""
+
+    trajectory = tmp_path / "trajectory.lammpstrj"
+    trajectory.write_text("", encoding="utf-8")
+    input_file = tmp_path / "lmplyz.inp"
+    input_file.write_text(
+        'element_list = ["C"]\nboundary p p f\nTrajF1 = trajectory.lammpstrj\n',
+        encoding="utf-8",
+    )
+
+    simulation = load_project(parse_input_file(input_file)).simulations[0]
+
+    assert simulation.boundary == ("p", "p", "f")
+
+
 def test_loaded_simulation_caches_trajectory_timesteps(tmp_path: Path, monkeypatch):
     """Share one trajectory scan across GUI tabs."""
 

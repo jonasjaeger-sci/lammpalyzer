@@ -108,6 +108,45 @@ def test_parse_input_file_uses_default_bond_order_cutoff_without_section(tmp_pat
     assert config.bond_order_cutoff(1, 2) == 0.5
 
 
+@pytest.mark.parametrize("setting", ["boundary p p f", "boundary = p p f"])
+def test_parse_input_file_reads_boundary_modes(tmp_path: Path, setting: str):
+    """Accept command-style and assignment-style boundary settings."""
+
+    input_file = tmp_path / "lmplyz.inp"
+    input_file.write_text(
+        f'element_list = ["C", "H"]\n{setting}\nBF1 = bonds.reax\n',
+        encoding="utf-8",
+    )
+
+    assert parse_input_file(input_file).boundary == ("p", "p", "f")
+
+
+def test_parse_input_file_defaults_to_fully_periodic_boundaries(tmp_path: Path):
+    """Assume periodic boundaries on every axis when no setting is present."""
+
+    input_file = tmp_path / "lmplyz.inp"
+    input_file.write_text(
+        'element_list = ["C", "H"]\nBF1 = bonds.reax\n',
+        encoding="utf-8",
+    )
+
+    assert parse_input_file(input_file).boundary == ("p", "p", "p")
+
+
+@pytest.mark.parametrize("setting", ["boundary p f", "boundary p s f", "boundary p p p f"])
+def test_parse_input_file_rejects_invalid_boundary_modes(tmp_path: Path, setting: str):
+    """Require exactly three periodic or fixed boundary values."""
+
+    input_file = tmp_path / "lmplyz.inp"
+    input_file.write_text(
+        f'element_list = ["C", "H"]\n{setting}\nBF1 = bonds.reax\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="boundary must contain exactly three"):
+        parse_input_file(input_file)
+
+
 def test_parse_input_file_rejects_cutoff_types_outside_element_list(tmp_path: Path):
     """Reject cutoff selectors that do not map to a declared element."""
 
