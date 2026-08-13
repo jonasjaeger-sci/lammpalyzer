@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import fmean, pstdev
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 from lammpalyze.parsers import iter_lammpstrj_frames, trajectory_atom_columns
 
@@ -62,6 +62,11 @@ ATOMIC_PROPERTY_UNITS = {
     "f": "(kcal/mol)/Angstrom",
 }
 ATOM_ID_TOKEN = re.compile(r"^(\d+)(?:-(\d+))?$")
+CancellationCheck = Callable[[], bool]
+
+
+class AtomicCollectionCancelled(RuntimeError):
+    """Signal that a streaming atomic-data collection was cancelled."""
 
 
 @dataclass(frozen=True)
@@ -113,6 +118,7 @@ def collect_atomic_series(
     elements: Iterable[str] | None = None,
     atom_ids: Iterable[int] | None = None,
     step_range: tuple[float, float] | None = None,
+    cancelled: CancellationCheck | None = None,
 ) -> list[AtomicSeries]:
     """Stream and aggregate one atomic property by element or atom ID."""
 
@@ -124,6 +130,7 @@ def collect_atomic_series(
     if selected_elements:
         result = []
         for simulation in simulations:
+            _raise_if_cancelled(cancelled)
             if simulation.trajectory_path is None:
                 continue
             if property_name not in trajectory_atomic_properties(simulation.trajectory_path):
@@ -134,6 +141,7 @@ def collect_atomic_series(
                     property_name,
                     selected_elements,
                     step_range,
+                    cancelled,
                 )
             )
         if not result:
@@ -144,6 +152,7 @@ def collect_atomic_series(
 
     result = []
     for simulation in simulations:
+        _raise_if_cancelled(cancelled)
         if simulation.trajectory_path is None:
             continue
         if property_name not in trajectory_atomic_properties(simulation.trajectory_path):
@@ -154,6 +163,7 @@ def collect_atomic_series(
             simulation.trajectory_path,
             _trajectory_step_range(step_range),
         ):
+            _raise_if_cancelled(cancelled)
             if not _in_step_range(frame.timestep, step_range):
                 continue
             grouped_values = {selector: [] for selector in selectors}
@@ -197,6 +207,7 @@ def collect_element_atomic_series(
     *,
     step_range: tuple[float, float] | None = None,
     max_individual_series: int | None = None,
+    cancelled: CancellationCheck | None = None,
 ) -> ElementAtomicSeries:
     """Collect element means and matching individual atoms in one pass."""
 
@@ -207,6 +218,7 @@ def collect_element_atomic_series(
     aggregate_result = []
     individual_result = []
     for simulation in simulations:
+        _raise_if_cancelled(cancelled)
         if simulation.trajectory_path is None:
             continue
         if property_name not in trajectory_atomic_properties(simulation.trajectory_path):
@@ -217,6 +229,7 @@ def collect_element_atomic_series(
             simulation.trajectory_path,
             _trajectory_step_range(step_range),
         ):
+            _raise_if_cancelled(cancelled)
             if not _in_step_range(frame.timestep, step_range):
                 continue
             grouped_values = {element: [] for element in selected_elements}
@@ -346,6 +359,7 @@ def _collect_element_aggregate_series(
     property_name: str,
     selected_elements: tuple[str, ...],
     step_range: tuple[float, float] | None,
+    cancelled: CancellationCheck | None,
 ) -> list[AtomicSeries]:
     """Collect per-element means without constructing per-atom objects."""
 
@@ -355,6 +369,7 @@ def _collect_element_aggregate_series(
     trajectory_path = Path(simulation.trajectory_path)
     with trajectory_path.open(encoding="utf-8") as handle:
         while True:
+            _raise_if_cancelled(cancelled)
             line = handle.readline()
             if not line:
                 break
@@ -388,8 +403,7 @@ def _collect_element_aggregate_series(
             stats = {element: [0, 0.0, 0.0] for element in selected_elements}
             row_reader = _fast_atom_row_reader(columns, property_name, simulation.type_to_element)
             for _ in range(n_atoms):
-                values = handle.readline().split()
-                element, value = row_reader(values)
+                element, value = row_reader(handle.readline())
                 if element not in selected_element_set or value is None:
                     continue
                 element_stats = stats[element]
@@ -436,7 +450,10 @@ def _fast_atom_row_reader(
     ]
     minimum_values = max(required_indexes, default=-1) + 1
 
-    def read_row(values: list[str]) -> tuple[str | None, float | None]:
+    def read_row(line: str) -> tuple[str | None, float | None]:
+        # Stop splitting after the last required column. Wide trajectory rows
+        # otherwise create millions of short-lived strings that are never used.
+        values = line.split(maxsplit=minimum_values)
         if len(values) < minimum_values:
             return None, None
         element = None
@@ -490,3 +507,10 @@ def _trajectory_step_range(step_range: tuple[float, float] | None) -> tuple[int,
         return None
     lower, upper = sorted(step_range)
     return math.floor(lower), math.ceil(upper)
+
+
+def _raise_if_cancelled(cancelled: CancellationCheck | None) -> None:
+    """Stop a streaming collection promptly when its caller is shutting down."""
+
+    if cancelled is not None and cancelled():
+        raise AtomicCollectionCancelled("Atomic-data collection was cancelled.")

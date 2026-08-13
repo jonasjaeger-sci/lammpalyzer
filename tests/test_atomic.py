@@ -1,6 +1,7 @@
 """Tests for trajectory-backed atomic data analysis."""
 
 from pathlib import Path
+import threading
 
 import numpy as np
 import pytest
@@ -8,6 +9,7 @@ import pytest
 import lammpalyze.atomic as atomic_module
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.atomic import (
+    AtomicCollectionCancelled,
     atomic_property_label,
     collect_atomic_series,
     collect_element_atomic_series,
@@ -138,6 +140,24 @@ def test_individual_element_atom_collection_can_fail_fast_for_broad_selections(t
             "q",
             ["Li"],
             max_individual_series=1,
+        )
+
+
+def test_atomic_collection_honors_cancellation_before_reading(tmp_path: Path):
+    """Let the GUI stop a large trajectory scan before Tk is destroyed."""
+
+    trajectory = tmp_path / "atomic.lammpstrj"
+    trajectory.write_text(_atomic_trajectory_text(), encoding="utf-8")
+    simulation = LoadedSimulation(index=3, trajectory_path=trajectory)
+    cancel_event = threading.Event()
+    cancel_event.set()
+
+    with pytest.raises(AtomicCollectionCancelled):
+        collect_atomic_series(
+            [simulation],
+            "q",
+            elements=["Li"],
+            cancelled=cancel_event.is_set,
         )
 
 

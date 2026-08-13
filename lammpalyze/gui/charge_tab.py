@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import queue
 import threading
 import tkinter as tk
@@ -10,6 +11,7 @@ from tkinter import messagebox, ttk
 import matplotlib.pyplot as plt
 
 from lammpalyze.atomic import (
+    AtomicCollectionCancelled,
     atomic_property_label,
     available_atomic_properties,
     collect_atomic_series,
@@ -176,7 +178,9 @@ class ChargeTabMixin:
         self._atomic_plot_queue: queue.Queue = queue.Queue()
         self._atomic_plot_token = None
         self._atomic_plot_thread: threading.Thread | None = None
+        self._atomic_plot_cancel_event: threading.Event | None = None
         self._atomic_plot_after_job: str | None = None
+        self._atomic_gc_was_enabled = False
         self._update_atomic_selection_controls()
 
     def _update_atomic_selection_controls(self) -> None:
@@ -250,7 +254,9 @@ class ChargeTabMixin:
         """Collect atomic data in a worker so Tk remains responsive."""
 
         token = object()
+        cancel_event = threading.Event()
         self._atomic_plot_token = token
+        self._atomic_plot_cancel_event = cancel_event
         self._atomic_plot_queue = queue.Queue()
         self.atomic_plot_button.configure(state="disabled")
         self.atomic_status.set("Reading trajectory data...")
@@ -269,10 +275,19 @@ class ChargeTabMixin:
         }
         thread = threading.Thread(
             target=_collect_atomic_plot_data_worker,
-            args=(self._atomic_plot_queue, token, options),
-            daemon=True,
+            args=(self._atomic_plot_queue, token, options, cancel_event),
+            daemon=False,
         )
         self._atomic_plot_thread = thread
+        # Cyclic garbage collection can run in whichever Python thread happens
+        # to cross its allocation threshold.  A trajectory worker does that
+        # frequently; if it then finalizes an old Tk image/variable, Tcl aborts
+        # because Tk may only be accessed from its main thread.  Collect once
+        # here and defer further cyclic collection until the worker is done.
+        gc.collect()
+        self._atomic_gc_was_enabled = gc.isenabled()
+        if self._atomic_gc_was_enabled:
+            gc.disable()
         thread.start()
         self._atomic_plot_after_job = self.root.after(100, self._poll_atomic_plot_queue)
 
@@ -291,18 +306,25 @@ class ChargeTabMixin:
             return
 
         self._atomic_plot_after_job = None
+        thread = self._atomic_plot_thread
+        if thread is not None and thread.is_alive():
+            thread.join()
+        self._atomic_plot_thread = None
+        self._atomic_plot_cancel_event = None
+        self._restore_atomic_gc()
         if token is not self._atomic_plot_token:
             if status == "success":
                 self._close_figures_from_payload(payload)
             return
 
         self._atomic_plot_token = None
-        self._atomic_plot_thread = None
         self.atomic_plot_button.configure(state="normal")
         self.atomic_status.set("")
         self.atomic_progress.stop()
         self.atomic_progress.pack_forget()
 
+        if status == "cancelled":
+            return
         if status == "error":
             messagebox.showerror("Atomic data plotting failed", str(payload))
             return
@@ -375,16 +397,23 @@ class ChargeTabMixin:
             plt.close(figure)
 
     def _close_atomic_plot_worker(self) -> None:
-        """Detach any running atomic worker from Tk-owned GUI state."""
+        """Cancel and join the atomic worker before destroying Tk state."""
 
+        thread = self._atomic_plot_thread
+        if self._atomic_plot_cancel_event is not None:
+            self._atomic_plot_cancel_event.set()
+        if thread is not None and thread.is_alive():
+            thread.join()
         self._atomic_plot_token = None
         self._atomic_plot_thread = None
+        self._atomic_plot_cancel_event = None
         if self._atomic_plot_after_job is not None:
             try:
                 self.root.after_cancel(self._atomic_plot_after_job)
             except tk.TclError:
                 pass
             self._atomic_plot_after_job = None
+        self._restore_atomic_gc()
         try:
             self.atomic_progress.stop()
             self.atomic_progress.pack_forget()
@@ -392,6 +421,15 @@ class ChargeTabMixin:
             self.atomic_plot_button.configure(state="normal")
         except tk.TclError:
             pass
+
+    def _restore_atomic_gc(self) -> None:
+        """Resume cyclic collection on Tk's main thread after worker I/O."""
+
+        if not self._atomic_gc_was_enabled:
+            return
+        self._atomic_gc_was_enabled = False
+        gc.enable()
+        gc.collect()
 
     def _charge_step_range(self) -> tuple[float, float] | None:
         """Return the optional atomic-data timestep range."""
@@ -440,7 +478,12 @@ class ChargeTabMixin:
         self._charge_scroll_canvas.yview_scroll(delta, "units")
 
 
-def _collect_atomic_plot_data_worker(result_queue: queue.Queue, token, options: dict) -> None:
+def _collect_atomic_plot_data_worker(
+    result_queue: queue.Queue,
+    token,
+    options: dict,
+    cancel_event: threading.Event,
+) -> None:
     """Collect atomic plot data without touching Tk-owned GUI objects."""
 
     try:
@@ -451,6 +494,7 @@ def _collect_atomic_plot_data_worker(result_queue: queue.Queue, token, options: 
                 options["elements"],
                 step_range=options["step_range"],
                 max_individual_series=200,
+                cancelled=cancel_event.is_set,
             )
             payload = ("element_with_individual", series, options)
         else:
@@ -460,8 +504,11 @@ def _collect_atomic_plot_data_worker(result_queue: queue.Queue, token, options: 
                 elements=options["elements"],
                 atom_ids=options["atom_ids"],
                 step_range=options["step_range"],
+                cancelled=cancel_event.is_set,
             )
             payload = ("series", series, options)
         result_queue.put(("success", token, payload))
+    except AtomicCollectionCancelled:
+        result_queue.put(("cancelled", token, None))
     except Exception as exc:  # pragma: no cover - GUI feedback.
         result_queue.put(("error", token, exc))
