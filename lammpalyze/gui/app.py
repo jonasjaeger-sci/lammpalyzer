@@ -11,6 +11,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from lammpalyze.analysis import LammpalyzeProject
 from lammpalyze.gui.canvas import CanvasMixin
 from lammpalyze.gui.charge_tab import ChargeTabMixin
+from lammpalyze.gui.atomic_indices_tab import AtomicIndicesTabMixin
 from lammpalyze.gui.computed_tabs import ComputedDataTabMixin
 from lammpalyze.gui.geometry_tab import GeometryTabMixin
 from lammpalyze.gui.molecule_tab import MoleculeTabMixin
@@ -26,6 +27,7 @@ from lammpalyze.plotting import PlotSettings
 # Tkinter tabs are intentionally separated into focused mixins.
 # pylint: disable=too-many-ancestors
 class LammpalyzeGUI(
+    AtomicIndicesTabMixin,
     SpeciesTabMixin,
     ThermoTabMixin,
     ComputedDataTabMixin,
@@ -104,6 +106,7 @@ class LammpalyzeGUI(
         thermo_tab = ttk.Frame(tabs)
         pairwise_tab = ttk.Frame(tabs)
         geometry_tab = ttk.Frame(tabs)
+        atomic_indices_tab = ttk.Frame(tabs)
         msd_tab = ttk.Frame(tabs)
         rdf_tab = ttk.Frame(tabs)
         structure_tab = ttk.Frame(tabs)
@@ -117,6 +120,7 @@ class LammpalyzeGUI(
         tabs.add(thermo_tab, text="Thermodynamic data")
         tabs.add(pairwise_tab, text="Pairwise data")
         tabs.add(geometry_tab, text="Distances and angles")
+        tabs.add(atomic_indices_tab, text="Atomic index generator")
         tabs.add(msd_tab, text="Mean-square displacement")
         tabs.add(rdf_tab, text="Radial distribution")
         tabs.add(structure_tab, text="Structural relaxation")
@@ -131,6 +135,7 @@ class LammpalyzeGUI(
         self._build_thermo_tab(thermo_tab)
         self._build_pairwise_tab(pairwise_tab)
         self._build_geometry_tab(geometry_tab)
+        self._build_atomic_indices_tab(atomic_indices_tab)
         self._build_msd_tab(msd_tab)
         self._build_rdf_tab(rdf_tab)
         self._build_structure_tab(structure_tab)

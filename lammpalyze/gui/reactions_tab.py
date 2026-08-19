@@ -7,10 +7,10 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from lammpalyze.chop import chop_lammpstrj, parse_trajectory_cut_range
 from lammpalyze.gui.helpers import reaction_path_display_order
 from lammpalyze.gui.molecule_tab import MOLECULE_THUMBNAIL_SIZE
 from lammpalyze.ovito import OvitoNotAvailableError, create_reaction_scene, launch_ovito_scene, normalize_reaction_path
-from lammpalyze.parsers import copy_lammpstrj_until
 from lammpalyze.reactions import format_connected_reaction_pathways
 from lammpalyze.smiles import reaction_smiles_groups, reaction_smiles_path
 
@@ -25,8 +25,10 @@ class ReactionTabMixin:
         panes.pack(fill="both", expand=True, padx=8, pady=8)
         table_frame = ttk.Frame(panes)
         preview_frame = ttk.Frame(panes)
+        occurrence_frame = ttk.Frame(panes)
         panes.add(table_frame, weight=3)
         panes.add(preview_frame, weight=2)
+        panes.add(occurrence_frame, weight=2)
 
         simulation_columns = [f"simulation_{index}" for index in self._reaction_simulation_indices]
         self._reaction_table_simulation_columns = simulation_columns
@@ -100,20 +102,22 @@ class ReactionTabMixin:
 
         copy_frame = ttk.Frame(table_frame)
         copy_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        ttk.Label(copy_frame, text="Selected reaction path").pack(anchor="w")
+        selected_path_frame = ttk.Frame(copy_frame)
+        selected_path_frame.pack(fill="x")
+        ttk.Label(selected_path_frame, text="Selected reaction path").pack(anchor="w")
         self.reaction_path_copy_value = tk.StringVar()
         self.reaction_path_copy_entry = ttk.Entry(
-            copy_frame,
+            selected_path_frame,
             textvariable=self.reaction_path_copy_value,
             state="readonly",
         )
         self.reaction_path_copy_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ttk.Button(copy_frame, text="Copy", command=self._copy_selected_reaction_path).pack(side="right")
         ttk.Button(
-            copy_frame,
-            text="Export cut trajectory",
-            command=self._export_selected_reaction_cut_trajectory,
-        ).pack(side="right", padx=(0, 8))
+            selected_path_frame,
+            text="Copy",
+            command=self._copy_selected_reaction_path,
+        ).pack(side="right")
+        self._build_reaction_trajectory_cutter(copy_frame)
 
         self.reaction_path_canvas, self.reaction_path_gallery = self._build_scrollable_molecule_gallery(
             preview_frame
@@ -126,9 +130,136 @@ class ReactionTabMixin:
         )
         reaction_path_scrollbar.pack(side="right", fill="y")
         self.reaction_path_canvas.configure(yscrollcommand=reaction_path_scrollbar.set)
+        self._build_selected_reaction_occurrence_table(occurrence_frame)
 
         self._select_first_reaction_table_row()
         self._sync_reaction_path_copy_field()
+
+    def _build_reaction_trajectory_cutter(self, parent: ttk.Frame) -> None:
+        """Add free trajectory range export beneath the selected reaction path."""
+
+        cutter = ttk.Frame(parent)
+        cutter.pack(fill="x", pady=(6, 0))
+        self._reaction_cut_simulations = [
+            simulation
+            for simulation in self.project.simulations
+            if simulation.trajectory_path is not None
+        ]
+        simulation_labels = [
+            f"Simulation {simulation.index}"
+            for simulation in self._reaction_cut_simulations
+        ]
+        ttk.Label(cutter, text="Trajectory").pack(side="left", padx=(0, 6))
+        self.reaction_cut_simulation = tk.StringVar()
+        self.reaction_cut_simulation_box = ttk.Combobox(
+            cutter,
+            textvariable=self.reaction_cut_simulation,
+            values=simulation_labels,
+            state="readonly" if simulation_labels else "disabled",
+            width=16,
+        )
+        self.reaction_cut_simulation_box.pack(side="left", padx=(0, 12))
+        if simulation_labels:
+            self.reaction_cut_simulation_box.current(0)
+
+        self.reaction_cut_start = tk.StringVar()
+        self.reaction_cut_end = tk.StringVar()
+        ttk.Label(cutter, text="Start (inclusive)").pack(side="left", padx=(0, 6))
+        ttk.Entry(cutter, textvariable=self.reaction_cut_start, width=13).pack(
+            side="left", padx=(0, 12)
+        )
+        ttk.Label(cutter, text="End (inclusive)").pack(side="left", padx=(0, 6))
+        ttk.Entry(cutter, textvariable=self.reaction_cut_end, width=13).pack(
+            side="left", padx=(0, 12)
+        )
+        ttk.Button(
+            cutter,
+            text="Export cut trajectory...",
+            command=self._export_reaction_tab_trajectory_range,
+            state="normal" if simulation_labels else "disabled",
+        ).pack(side="right")
+
+    def _build_selected_reaction_occurrence_table(self, parent: ttk.Frame) -> None:
+        """Create the all-occurrences table below the reaction image gallery."""
+
+        heading = ttk.Frame(parent)
+        heading.pack(fill="x", pady=(0, 6))
+        self.selected_reaction_occurrence_status = tk.StringVar(
+            value="Select a reaction and click Show all occurrences."
+        )
+        ttk.Label(
+            heading,
+            textvariable=self.selected_reaction_occurrence_status,
+        ).pack(side="left")
+        ttk.Button(
+            heading,
+            text="Show all occurrences",
+            command=self._show_all_selected_reaction_occurrences,
+        ).pack(side="right")
+
+        table_frame = ttk.Frame(parent)
+        table_frame.pack(fill="both", expand=True)
+        columns = (
+            "occurrence",
+            "simulation",
+            "reactant_timestep",
+            "product_timestep",
+            "reactant_atom_ids",
+            "product_atom_ids",
+        )
+        self.selected_reaction_occurrence_table = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+        )
+        headings = {
+            "occurrence": "Occurrence",
+            "simulation": "Simulation",
+            "reactant_timestep": "Reactant timestep",
+            "product_timestep": "Product timestep",
+            "reactant_atom_ids": "Reactant atom IDs",
+            "product_atom_ids": "Product atom IDs",
+        }
+        for column, label in headings.items():
+            self.selected_reaction_occurrence_table.heading(column, text=label)
+        self.selected_reaction_occurrence_table.column(
+            "occurrence", width=85, minwidth=70, anchor="e", stretch=False
+        )
+        self.selected_reaction_occurrence_table.column(
+            "simulation", width=85, minwidth=70, anchor="e", stretch=False
+        )
+        self.selected_reaction_occurrence_table.column(
+            "reactant_timestep", width=135, minwidth=110, anchor="e", stretch=False
+        )
+        self.selected_reaction_occurrence_table.column(
+            "product_timestep", width=135, minwidth=110, anchor="e", stretch=False
+        )
+        self.selected_reaction_occurrence_table.column(
+            "reactant_atom_ids", width=230, minwidth=140, anchor="w"
+        )
+        self.selected_reaction_occurrence_table.column(
+            "product_atom_ids", width=230, minwidth=140, anchor="w"
+        )
+        y_scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            command=self.selected_reaction_occurrence_table.yview,
+        )
+        x_scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="horizontal",
+            command=self.selected_reaction_occurrence_table.xview,
+        )
+        self.selected_reaction_occurrence_table.configure(
+            yscrollcommand=y_scrollbar.set,
+            xscrollcommand=x_scrollbar.set,
+        )
+        self.selected_reaction_occurrence_table.grid(row=0, column=0, sticky="nsew")
+        y_scrollbar.grid(row=0, column=1, sticky="ns")
+        x_scrollbar.grid(row=1, column=0, sticky="ew")
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+        self._shown_occurrence_reaction = ""
 
     def _build_reaction_table_rows(self) -> list[dict[str, object]]:
         """Build default reaction table rows with reverse paths adjacent."""
@@ -429,7 +560,7 @@ class ReactionTabMixin:
 
         self.reaction_status = ttk.Label(
             output,
-            text="Select or paste a reaction path from paths.out, then open it in OVITO.",
+            text="Select or paste a reaction path, then open its first occurrence in OVITO.",
             wraplength=620,
             justify="left",
         )
@@ -474,6 +605,11 @@ class ReactionTabMixin:
         self.reaction_path_copy_value.set(reaction)
         if hasattr(self, "reaction_path_gallery"):
             self._render_reaction_path_gallery(reaction)
+        if (
+            hasattr(self, "selected_reaction_occurrence_table")
+            and reaction != self._shown_occurrence_reaction
+        ):
+            self._clear_selected_reaction_occurrences()
 
     def _copy_selected_reaction_path(self, _event=None) -> str:
         """Copy the selected reaction path to the system clipboard."""
@@ -486,57 +622,96 @@ class ReactionTabMixin:
             self.reaction_path_copy_value.set(reaction)
         return "break"
 
-    def _export_selected_reaction_cut_trajectory(self) -> None:
-        """Export the selected reaction's trajectory through its first product timestep."""
+    def _export_reaction_tab_trajectory_range(self) -> None:
+        """Export an arbitrary inclusive trajectory range from the reaction tab."""
 
         try:
-            reaction = normalize_reaction_path(self._selected_reaction_path_from_table())
-            if not reaction:
-                raise ValueError("Select a reaction path before exporting.")
-            if reaction not in self._reaction_occurrences_by_path:
-                raise ValueError(f"No occurrence found for reaction path: {reaction}")
-
-            simulation, occurrence = self._reaction_occurrences_by_path[reaction]
+            selection = self.reaction_cut_simulation_box.current()
+            if selection < 0:
+                raise ValueError("Select a trajectory to export.")
+            simulation = self._reaction_cut_simulations[selection]
             if simulation.trajectory_path is None:
                 raise ValueError(f"Simulation {simulation.index} has no trajectory file.")
+            start_timestep, end_timestep = parse_trajectory_cut_range(
+                self.reaction_cut_start.get(),
+                self.reaction_cut_end.get(),
+            )
+            source_path = Path(simulation.trajectory_path)
+            suffix = source_path.suffix or ".lammpstrj"
 
-            reaction_id = self._selected_reaction_table_value("reaction_id") or "reaction"
             filename = filedialog.asksaveasfilename(
                 title="Export cut trajectory",
-                initialfile=(
-                    f"reaction_{reaction_id}_sim{simulation.index}_"
-                    f"through_{occurrence.timestep_products}.lammpstrj"
+                initialdir=source_path.parent,
+                initialfile=f"{source_path.stem}_{start_timestep}_{end_timestep}{suffix}",
+                defaultextension=suffix,
+                filetypes=(
+                    ("LAMMPS trajectory", "*.lammpstrj *.traj *.dump"),
+                    ("All files", "*.*"),
                 ),
-                defaultextension=".lammpstrj",
-                filetypes=(("LAMMPS trajectory", "*.lammpstrj"), ("All files", "*.*")),
             )
             if not filename:
                 return
 
             output_path = Path(filename)
-            frames = copy_lammpstrj_until(
-                simulation.trajectory_path,
+            output_path, frames = chop_lammpstrj(
+                source_path,
+                start_timestep,
+                end_timestep,
                 output_path,
-                occurrence.timestep_products,
             )
             messagebox.showinfo(
                 "Trajectory exported",
                 (
                     f"Exported {frames} frame(s) from simulation {simulation.index} "
-                    f"through timestep {occurrence.timestep_products} to {output_path}"
+                    f"from timestep {start_timestep} through {end_timestep} (inclusive) "
+                    f"to {output_path}"
                 ),
             )
         except Exception as exc:  # pragma: no cover - GUI feedback.
             messagebox.showerror("Trajectory export failed", str(exc))
 
-    def _selected_reaction_table_value(self, column: str) -> str:
-        """Return one column value from the selected reaction table row."""
+    def _clear_selected_reaction_occurrences(self) -> None:
+        """Clear occurrence rows when a different main-table reaction is selected."""
 
-        selected = self.reaction_table.selection()
-        item_id = selected[0] if selected else self.reaction_table.focus()
-        if not item_id:
-            return ""
-        return self.reaction_table.set(item_id, column)
+        for item_id in self.selected_reaction_occurrence_table.get_children():
+            self.selected_reaction_occurrence_table.delete(item_id)
+        self._shown_occurrence_reaction = ""
+        self.selected_reaction_occurrence_status.set(
+            "Select a reaction and click Show all occurrences."
+        )
+
+    def _show_all_selected_reaction_occurrences(self) -> None:
+        """List every event matching the reaction selected in the main table."""
+
+        try:
+            reaction = normalize_reaction_path(self._selected_reaction_path_from_table())
+            if not reaction:
+                raise ValueError("Select a reaction path.")
+            occurrences = self.project.reaction_occurrences(reaction)
+            self._clear_selected_reaction_occurrences()
+            for number, (simulation, occurrence) in enumerate(occurrences, start=1):
+                self.selected_reaction_occurrence_table.insert(
+                    "",
+                    "end",
+                    values=(
+                        number,
+                        simulation.index,
+                        occurrence.timestep_reactants,
+                        occurrence.timestep_products,
+                        ", ".join(occurrence.reactant_atom_ids),
+                        ", ".join(occurrence.product_atom_ids),
+                    ),
+                )
+            self._shown_occurrence_reaction = reaction
+            simulation_count = len(
+                {simulation.index for simulation, _occurrence in occurrences}
+            )
+            self.selected_reaction_occurrence_status.set(
+                f"Found {len(occurrences)} occurrence(s) across "
+                f"{simulation_count} simulation(s)."
+            )
+        except Exception as exc:  # pragma: no cover - GUI feedback.
+            messagebox.showerror("Reaction occurrence lookup failed", str(exc))
 
     def _refresh_connected_pathways(self, _event=None) -> None:
         """Refresh connected pathway table and text outline for the notation."""

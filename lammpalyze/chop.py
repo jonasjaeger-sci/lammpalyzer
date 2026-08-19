@@ -7,6 +7,24 @@ import math
 import sys
 from pathlib import Path
 from typing import Sequence, TextIO
+from uuid import uuid4
+
+
+def parse_trajectory_cut_range(start_value: str, end_value: str) -> tuple[int, int]:
+    """Return a validated inclusive timestep range from two entry values."""
+
+    start_text = start_value.strip()
+    end_text = end_value.strip()
+    if not start_text or not end_text:
+        raise ValueError("Enter both a start timestep and an end timestep.")
+    try:
+        start_timestep = int(start_text)
+        end_timestep = int(end_text)
+    except ValueError as exc:
+        raise ValueError("Start and end timesteps must be whole numbers.") from exc
+    if start_timestep > end_timestep:
+        raise ValueError("Start timestep must be less than or equal to end timestep.")
+    return start_timestep, end_timestep
 
 
 def chop_lammpstrj(
@@ -24,16 +42,49 @@ def chop_lammpstrj(
         end_timestep,
     )
     _validate_range(start_timestep, end_timestep)
+    if source_path.resolve() == destination_path.resolve():
+        raise ValueError("output trajectory must be different from the source trajectory")
+
+    temporary_path = destination_path.with_name(
+        f".{destination_path.name}.{uuid4().hex}.tmp"
+    )
+    try:
+        with temporary_path.open(
+            "x",
+            encoding="utf-8",
+            newline="",
+        ) as output_handle:
+            frames_written = _write_lammpstrj_segment(
+                source_path,
+                output_handle,
+                start_timestep,
+                end_timestep,
+            )
+
+        if frames_written == 0:
+            raise ValueError(
+                f"No trajectory frames found from timestep {start_timestep} through "
+                f"{end_timestep} in {source_path}"
+            )
+        temporary_path.replace(destination_path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return destination_path, frames_written
+
+
+def _write_lammpstrj_segment(
+    source_path: Path,
+    output_handle: TextIO,
+    start_timestep: int,
+    end_timestep: int,
+) -> int:
+    """Stream the selected complete frames into an already-open output file."""
 
     frames_written = 0
     saw_frame = False
     preamble: list[str] = []
-
-    with source_path.open(encoding="utf-8", newline="") as input_handle, destination_path.open(
-        "w",
-        encoding="utf-8",
-        newline="",
-    ) as output_handle:
+    with source_path.open(encoding="utf-8", newline="") as input_handle:
         while True:
             line = input_handle.readline()
             if not line:
@@ -63,12 +114,7 @@ def chop_lammpstrj(
                 frames_written += 1
             if timestep >= end_timestep:
                 break
-
-    if frames_written == 0:
-        raise ValueError(
-            f"No trajectory frames found from timestep {start_timestep} through {end_timestep} in {source_path}"
-        )
-    return destination_path, frames_written
+    return frames_written
 
 
 def chop_thermo_log(

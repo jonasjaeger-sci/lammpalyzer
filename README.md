@@ -432,10 +432,16 @@ The GUI contains tabs for common analysis tasks:
   explicitly selected atom. Atom IDs accept comma/space-separated values and
   inclusive ranges such as `1, 4-8`. A progress indicator remains visible while
   large trajectory files are read in the background.
+- `Atomic index generator`: generate a sorted atom-ID list from atom types or a
+  trajectory-provided `mol` column in the first frame. Selection values accept
+  inclusive `*` ranges such as `1,3,4*7`, and each matched ID can optionally be
+  repeated before copying the list into another tab.
 - `Molecule visualization`: render one or all observed SMILES structures for a
   formula and summarize component charges, ion candidates, and quality flags.
-- `Reaction paths`: view total and per-simulation reaction path counts, then copy
-  only the reaction path string.
+- `Reaction paths`: view total and per-simulation reaction path counts, copy a
+  selected path, export an inclusive timestep range from any configured
+  trajectory, and show every occurrence with simulation, timesteps, and atom
+  IDs beneath the reactant/product visualization.
 - `Connected pathways`: view connected reaction states by pathway depth in
   chemical formula or SMILES notation, filter by minimum occurrence count, and
   export the visible pathway table as CSV.
@@ -560,6 +566,8 @@ lammpalyze/
   config.py       input-file parsing
   validation.py   input preflight validation
   analysis.py     project loading and shared numerical helpers
+  atomic_indices.py trajectory atom-ID selection and list generation
+  chop.py         streaming trajectory and thermo range extraction
   reactions.py    reaction path counting and occurrence lookup
   rdf.py          radial distribution function calculations
   rdf_plotting.py radial distribution plotting and cross-simulation averaging
@@ -570,9 +578,11 @@ lammpalyze/
   plotting.py     Matplotlib plotting helpers
   parsers/        species, thermo, computed-data, bond, and trajectory readers
   gui/            Tkinter GUI tabs and application shell
+    atomic_indices_tab.py atom-ID generator controls and output
     charge_tab.py trajectory-backed atomic-data plotting tab
     computed_tabs.py pairwise-data and mean-square-displacement tabs
     geometry_tab.py trajectory distance-and-angle tab
+    reactions_tab.py reaction tables, range export, occurrence listing, and OVITO controls
     pathway_graph.py connected-pathway graph data and layout helpers
     pathway_graph_tab.py pathway graph controls and background rendering
     structure_tab.py structural-relaxation tab

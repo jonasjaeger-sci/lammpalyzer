@@ -144,6 +144,45 @@ def test_project_first_reaction_occurrences_report_simulation_and_timesteps():
     assert occurrence.timestep_products == 10
 
 
+def test_project_reaction_occurrences_report_every_instance_across_simulations():
+    """Collect all matching events with their simulation, timesteps, and atoms."""
+
+    project = LammpalyzeProject(
+        config=None,
+        simulations=[
+            LoadedSimulation(
+                index=4,
+                smiles={0: ["AB"], 10: ["A", "B"], 20: ["AB"], 30: ["A", "B"]},
+                smiles_id={
+                    0: [["1", "2"]],
+                    10: [["1"], ["2"]],
+                    20: [["1", "2"]],
+                    30: [["1"], ["2"]],
+                },
+            ),
+            LoadedSimulation(
+                index=2,
+                smiles={100: ["AB"], 110: ["A", "B"]},
+                smiles_id={100: [["8", "9"]], 110: [["8"], ["9"]]},
+            ),
+        ],
+    )
+
+    matches = project.reaction_occurrences("['AB'] -> ['A', 'B']")
+
+    assert [simulation.index for simulation, _ in matches] == [2, 4, 4]
+    assert [
+        (occurrence.timestep_reactants, occurrence.timestep_products)
+        for _, occurrence in matches
+    ] == [(100, 110), (0, 10), (20, 30)]
+    assert [occurrence.reactant_atom_ids for _, occurrence in matches] == [
+        ["8", "9"],
+        ["1", "2"],
+        ["1", "2"],
+    ]
+    assert project.reaction_occurrences("['AB'] -> ['A', 'B']") is matches
+
+
 def test_project_reuses_reaction_results_for_gui_refreshes():
     """Avoid repeating full reaction scans for cached GUI views."""
 

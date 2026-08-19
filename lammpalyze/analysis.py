@@ -148,6 +148,10 @@ class LammpalyzeProject:
     _first_reaction_occurrences_cache: (
         dict[str, tuple[LoadedSimulation, ReactionOccurrence]] | None
     ) = field(default=None, init=False, repr=False)
+    _reaction_occurrences_cache: dict[
+        str,
+        list[tuple[LoadedSimulation, ReactionOccurrence]],
+    ] = field(default_factory=dict, init=False, repr=False)
     _connected_occurrence_index_cache: dict[
         str,
         dict[int, dict[tuple[str, str], ReactionOccurrence]],
@@ -216,6 +220,7 @@ class LammpalyzeProject:
         if self._first_reaction_occurrences_cache is not None:
             return self._first_reaction_occurrences_cache
         occurrences_by_reaction = {}
+        all_occurrences_by_reaction = {}
         for simulation in self.simulations:
             if simulation.smiles is None or simulation.smiles_id is None:
                 continue
@@ -226,9 +231,44 @@ class LammpalyzeProject:
                 excluded_components=simulation.excluded_components,
                 quality_mode=simulation.structure_quality_mode,
             ):
-                occurrences_by_reaction.setdefault(occurrence.reaction, (simulation, occurrence))
+                match = (simulation, occurrence)
+                occurrences_by_reaction.setdefault(occurrence.reaction, match)
+                all_occurrences_by_reaction.setdefault(occurrence.reaction, []).append(match)
+        for reaction, matches in all_occurrences_by_reaction.items():
+            self._reaction_occurrences_cache.setdefault(
+                reaction,
+                sorted(matches, key=_reaction_occurrence_sort_key),
+            )
         self._first_reaction_occurrences_cache = occurrences_by_reaction
         return self._first_reaction_occurrences_cache
+
+    def reaction_occurrences(
+        self,
+        reaction: str,
+    ) -> list[tuple[LoadedSimulation, ReactionOccurrence]]:
+        """Return every concrete occurrence of one reaction across all runs."""
+
+        if reaction not in self._reaction_occurrences_cache:
+            matches = []
+            for simulation in self.simulations:
+                if simulation.smiles is None or simulation.smiles_id is None:
+                    continue
+                matches.extend(
+                    (simulation, occurrence)
+                    for occurrence in find_reaction_occurrences(
+                        simulation.smiles,
+                        simulation.smiles_id,
+                        reaction_filter=reaction,
+                        simulation_index=simulation.index,
+                        excluded_components=simulation.excluded_components,
+                        quality_mode=simulation.structure_quality_mode,
+                    )
+                )
+            self._reaction_occurrences_cache[reaction] = sorted(
+                matches,
+                key=_reaction_occurrence_sort_key,
+            )
+        return self._reaction_occurrences_cache[reaction]
 
     def first_connected_reaction_occurrence(
         self,
@@ -273,6 +313,19 @@ class LammpalyzeProject:
             if simulation.index == index:
                 return simulation
         raise KeyError(f"Simulation {index} was not loaded.")
+
+
+def _reaction_occurrence_sort_key(
+    match: tuple[LoadedSimulation, ReactionOccurrence],
+) -> tuple[int, int, int]:
+    """Sort one concrete event by simulation and then its timestep pair."""
+
+    simulation, occurrence = match
+    return (
+        simulation.index,
+        occurrence.timestep_reactants,
+        occurrence.timestep_products,
+    )
 
 
 def load_project(

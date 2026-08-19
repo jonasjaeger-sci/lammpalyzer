@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 from lammpalyze.chop import chop_lammpstrj, chop_thermo_log, chopthermo_main, default_segment_path
 
 
@@ -107,6 +109,47 @@ ITEM: TIMESTEP
 
     assert frames_written == 1
     assert output_path.read_text(encoding="utf-8").count("ITEM: TIMESTEP") == 1
+
+
+def test_chop_lammpstrj_preserves_destination_when_range_is_empty(tmp_path: Path):
+    """Do not leave an empty or overwritten export after a failed range cut."""
+
+    trajectory = tmp_path / "sample.traj"
+    trajectory.write_text(
+        """ITEM: TIMESTEP
+10
+ITEM: NUMBER OF ATOMS
+1
+ITEM: BOX BOUNDS pp pp pp
+0 1
+0 1
+0 1
+ITEM: ATOMS id type x y z
+1 1 0.0 0.0 0.0
+""",
+        encoding="utf-8",
+    )
+    destination = tmp_path / "existing.traj"
+    destination.write_text("keep me\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="No trajectory frames found"):
+        chop_lammpstrj(trajectory, 20, 30, destination)
+
+    assert destination.read_text(encoding="utf-8") == "keep me\n"
+    assert not list(tmp_path.glob(".existing.traj.*.tmp"))
+
+
+def test_chop_lammpstrj_rejects_overwriting_its_source(tmp_path: Path):
+    """Protect the source when a caller chooses it as the output path."""
+
+    trajectory = tmp_path / "sample.traj"
+    original = "trajectory contents\n"
+    trajectory.write_text(original, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="different from the source"):
+        chop_lammpstrj(trajectory, 0, 10, trajectory)
+
+    assert trajectory.read_text(encoding="utf-8") == original
 
 
 def test_chop_thermo_log_preserves_headered_table(tmp_path: Path):
