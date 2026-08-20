@@ -1,12 +1,33 @@
-"""Trajectory distance-and-angle tab for the Tkinter GUI."""
+"""Trajectory geometry tab for the Tkinter GUI."""
 
 from __future__ import annotations
 
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from lammpalyze.geometry import atom_id_groups, compute_geometry, parse_atom_ids
+from lammpalyze.geometry import (
+    atom_id_groups,
+    compute_distances,
+    compute_geometry,
+    compute_intramolecular_distances,
+    distance_pairs,
+    parse_atom_ids,
+    parse_distance_selections,
+    parse_intramolecular_groups,
+)
 from lammpalyze.geometry_plotting import plot_geometry
+
+
+_DISTANCE_SELECTION_KINDS = {
+    "Atom": "atom",
+    "COM (atom IDs)": "com_atoms",
+    "COM (molecule IDs)": "com_molecule",
+    "Plane (3 atom IDs)": "plane",
+}
+_INTRAMOLECULAR_KINDS = {
+    "Intramolecule (atom IDs)": "atoms",
+    "Intramolecule (molecule IDs)": "molecules",
+}
 
 
 class GeometryTabMixin:
@@ -46,21 +67,48 @@ class GeometryTabMixin:
         kind_box.bind("<<ComboboxSelected>>", lambda _event: self._update_geometry_fields())
         kind_box.pack(fill="x", pady=(0, 12))
 
+        self.geometry_selection_1 = tk.StringVar(value="Atom")
+        self.geometry_selection_2 = tk.StringVar(value="Atom")
+        ttk.Label(controls, text="First distance selection").pack(anchor="w")
+        self.geometry_selection_1_box = ttk.Combobox(
+            controls,
+            textvariable=self.geometry_selection_1,
+            values=[*_DISTANCE_SELECTION_KINDS, *_INTRAMOLECULAR_KINDS],
+            state="readonly",
+        )
+        self.geometry_selection_1_box.bind(
+            "<<ComboboxSelected>>", lambda _event: self._update_geometry_fields()
+        )
+        self.geometry_selection_1_box.pack(fill="x", pady=(0, 8))
+        ttk.Label(controls, text="Second distance selection").pack(anchor="w")
+        self.geometry_selection_2_box = ttk.Combobox(
+            controls,
+            textvariable=self.geometry_selection_2,
+            values=[*_DISTANCE_SELECTION_KINDS, *_INTRAMOLECULAR_KINDS],
+            state="readonly",
+        )
+        self.geometry_selection_2_box.bind(
+            "<<ComboboxSelected>>", lambda _event: self._update_geometry_fields()
+        )
+        self.geometry_selection_2_box.pack(fill="x", pady=(0, 12))
+
         self.geometry_atom_1 = tk.StringVar()
         self.geometry_atom_2 = tk.StringVar()
         self.geometry_atom_3 = tk.StringVar()
-        ttk.Label(controls, text="Atom 1 ID(s)").pack(anchor="w")
+        self.geometry_atom_1_label = ttk.Label(controls, text="Atom 1 ID(s)")
+        self.geometry_atom_1_label.pack(anchor="w")
         ttk.Entry(controls, textvariable=self.geometry_atom_1).pack(fill="x", pady=(0, 8))
         self.geometry_atom_2_label = ttk.Label(controls, text="Atom 2 ID(s)")
         self.geometry_atom_2_label.pack(anchor="w")
-        ttk.Entry(controls, textvariable=self.geometry_atom_2).pack(fill="x", pady=(0, 8))
+        self.geometry_atom_2_entry = ttk.Entry(controls, textvariable=self.geometry_atom_2)
+        self.geometry_atom_2_entry.pack(fill="x", pady=(0, 8))
         self.geometry_atom_3_label = ttk.Label(controls, text="Atom 3 ID(s)")
         self.geometry_atom_3_label.pack(anchor="w")
         self.geometry_atom_3_entry = ttk.Entry(controls, textvariable=self.geometry_atom_3)
         self.geometry_atom_3_entry.pack(fill="x", pady=(0, 4))
         self.geometry_hint = ttk.Label(
             controls,
-            text="Lists are paired by position, e.g. [1, 4] and [2, 5].",
+            text="Equal-length lists are paired by position; unequal lists use all combinations.",
             wraplength=270,
             justify="left",
         )
@@ -89,16 +137,65 @@ class GeometryTabMixin:
         self._update_geometry_fields()
 
     def _update_geometry_fields(self) -> None:
-        """Enable the third atom only for angle measurements."""
+        """Update endpoint controls and field guidance for the selected measurement."""
 
         is_angle = self.geometry_kind.get() == "Angle"
+        if not is_angle and self.geometry_selection_2.get() in _INTRAMOLECULAR_KINDS:
+            self.geometry_selection_1.set(self.geometry_selection_2.get())
+            self.geometry_selection_2.set("Atom")
+        intramolecular = self.geometry_selection_1.get() in _INTRAMOLECULAR_KINDS
+        self.geometry_selection_1_box.configure(state="disabled" if is_angle else "readonly")
+        self.geometry_selection_2_box.configure(
+            state="disabled" if is_angle or intramolecular else "readonly"
+        )
+        self.geometry_atom_2_entry.configure(
+            state="disabled" if not is_angle and intramolecular else "normal"
+        )
         self.geometry_atom_3_entry.configure(state="normal" if is_angle else "disabled")
-        self.geometry_atom_3_label.configure(
-            text="Atom 3 ID(s)" if is_angle else "Atom 3 ID(s) (angles only)"
+        if is_angle:
+            self.geometry_atom_1_label.configure(text="Atom 1 ID(s)")
+            self.geometry_atom_2_label.configure(text="Atom 2 ID(s) (angle vertex)")
+            self.geometry_atom_3_label.configure(text="Atom 3 ID(s)")
+            self.geometry_hint.configure(
+                text="Angle lists are paired by position; all three lists must be the same length."
+            )
+            return
+
+        self.geometry_atom_1_label.configure(
+            text=self._geometry_distance_field_label(self.geometry_selection_1.get(), "First")
         )
         self.geometry_atom_2_label.configure(
-            text="Atom 2 ID(s) (angle vertex)" if is_angle else "Atom 2 ID(s)"
+            text=(
+                "Second selection (not used in intramolecule mode)"
+                if intramolecular
+                else self._geometry_distance_field_label(
+                    self.geometry_selection_2.get(), "Second"
+                )
+            )
         )
+        self.geometry_atom_3_label.configure(text="Atom 3 ID(s) (angles only)")
+        self.geometry_hint.configure(
+            text=(
+                "Use [1,3,4] for one atom group or [[1,3,4],[7,8,9]] for several groups."
+                if intramolecular
+                else "Equal-length selections are paired by position; unequal selections use "
+                "all combinations. Nested lists define multiple COMs or planes."
+            )
+        )
+
+    @staticmethod
+    def _geometry_distance_field_label(selection: str, ordinal: str) -> str:
+        """Return a concise input label for one distance selection type."""
+
+        labels = {
+            "Atom": "atom ID(s)",
+            "COM (atom IDs)": "COM atom IDs",
+            "COM (molecule IDs)": "COM molecule ID(s)",
+            "Plane (3 atom IDs)": "plane atom IDs (three per plane)",
+            "Intramolecule (atom IDs)": "intramolecular atom group(s)",
+            "Intramolecule (molecule IDs)": "intramolecular molecule ID(s)",
+        }
+        return f"{ordinal} {labels[selection]}"
 
     def _plot_geometry(self) -> None:
         """Calculate and render the selected trajectory geometry."""
@@ -111,20 +208,44 @@ class GeometryTabMixin:
             if not simulations:
                 raise ValueError("Select at least one simulation.")
             kind = self.geometry_kind.get().lower()
-            columns = [
-                parse_atom_ids(self.geometry_atom_1.get()),
-                parse_atom_ids(self.geometry_atom_2.get()),
-            ]
             if kind == "angle":
-                columns.append(parse_atom_ids(self.geometry_atom_3.get()))
-            groups = atom_id_groups(*columns)
+                columns = [
+                    parse_atom_ids(self.geometry_atom_1.get()),
+                    parse_atom_ids(self.geometry_atom_2.get()),
+                    parse_atom_ids(self.geometry_atom_3.get()),
+                ]
+                groups = atom_id_groups(*columns)
             options = self._computed_plot_options("geometry")
-            results = compute_geometry(
-                simulations,
-                kind,
-                groups,
-                timestep_range=options["step_range"],
-            )
+            if kind == "angle":
+                results = compute_geometry(
+                    simulations,
+                    kind,
+                    groups,
+                    timestep_range=options["step_range"],
+                )
+            elif self.geometry_selection_1.get() in _INTRAMOLECULAR_KINDS:
+                intramolecular_kind = _INTRAMOLECULAR_KINDS[self.geometry_selection_1.get()]
+                groups = parse_intramolecular_groups(
+                    self.geometry_atom_1.get(), intramolecular_kind
+                )
+                results = compute_intramolecular_distances(
+                    simulations,
+                    groups,
+                    intramolecular_kind,
+                    timestep_range=options["step_range"],
+                )
+            else:
+                first_kind = _DISTANCE_SELECTION_KINDS[self.geometry_selection_1.get()]
+                second_kind = _DISTANCE_SELECTION_KINDS[self.geometry_selection_2.get()]
+                pairs = distance_pairs(
+                    parse_distance_selections(self.geometry_atom_1.get(), first_kind),
+                    parse_distance_selections(self.geometry_atom_2.get(), second_kind),
+                )
+                results = compute_distances(
+                    simulations,
+                    pairs,
+                    timestep_range=options["step_range"],
+                )
             molecule_atoms = self._geometry_molecule_atom_ids()
             figure = plot_geometry(
                 results,

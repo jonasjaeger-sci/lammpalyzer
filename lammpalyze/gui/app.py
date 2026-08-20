@@ -19,6 +19,7 @@ from lammpalyze.gui.pathway_graph_tab import PathwayGraphTabMixin
 from lammpalyze.gui.rdf_tab import RdfTabMixin
 from lammpalyze.gui.reactions_tab import ReactionTabMixin
 from lammpalyze.gui.species_tab import SpeciesTabMixin
+from lammpalyze.gui.snapshot_tab import SnapshotTabMixin
 from lammpalyze.gui.structure_tab import StructuralRelaxationTabMixin
 from lammpalyze.gui.thermo_tab import ThermoTabMixin
 from lammpalyze.plotting import PlotSettings
@@ -28,6 +29,7 @@ from lammpalyze.plotting import PlotSettings
 # pylint: disable=too-many-ancestors
 class LammpalyzeGUI(
     AtomicIndicesTabMixin,
+    SnapshotTabMixin,
     SpeciesTabMixin,
     ThermoTabMixin,
     ComputedDataTabMixin,
@@ -107,6 +109,7 @@ class LammpalyzeGUI(
         pairwise_tab = ttk.Frame(tabs)
         geometry_tab = ttk.Frame(tabs)
         atomic_indices_tab = ttk.Frame(tabs)
+        snapshot_tab = ttk.Frame(tabs)
         msd_tab = ttk.Frame(tabs)
         rdf_tab = ttk.Frame(tabs)
         structure_tab = ttk.Frame(tabs)
@@ -119,8 +122,9 @@ class LammpalyzeGUI(
         tabs.add(species_tab, text="Species analysis")
         tabs.add(thermo_tab, text="Thermodynamic data")
         tabs.add(pairwise_tab, text="Pairwise data")
-        tabs.add(geometry_tab, text="Distances and angles")
+        tabs.add(geometry_tab, text="Geometry")
         tabs.add(atomic_indices_tab, text="Atomic index generator")
+        tabs.add(snapshot_tab, text="Snapshot")
         tabs.add(msd_tab, text="Mean-square displacement")
         tabs.add(rdf_tab, text="Radial distribution")
         tabs.add(structure_tab, text="Structural relaxation")
@@ -136,6 +140,7 @@ class LammpalyzeGUI(
         self._build_pairwise_tab(pairwise_tab)
         self._build_geometry_tab(geometry_tab)
         self._build_atomic_indices_tab(atomic_indices_tab)
+        self._build_snapshot_tab(snapshot_tab)
         self._build_msd_tab(msd_tab)
         self._build_rdf_tab(rdf_tab)
         self._build_structure_tab(structure_tab)

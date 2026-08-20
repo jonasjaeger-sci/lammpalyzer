@@ -146,13 +146,15 @@ class AtomicIndicesTabMixin:
             orient="vertical",
             command=self.atomic_index_output.yview,
         )
-        self.atomic_index_output.configure(yscrollcommand=output_scrollbar.set, state="disabled")
+        self.atomic_index_output.configure(yscrollcommand=output_scrollbar.set)
         self.atomic_index_output.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
         output_scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 8), pady=8)
 
         output_actions = ttk.Frame(output_frame)
         output_actions.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 8))
-        self.atomic_index_status = tk.StringVar(value="Generate a list to copy it.")
+        self.atomic_index_status = tk.StringVar(
+            value="Generate a list, edit it if needed, then copy it."
+        )
         ttk.Label(output_actions, textvariable=self.atomic_index_status).pack(side="left")
         ttk.Button(
             output_actions,
@@ -248,10 +250,8 @@ class AtomicIndicesTabMixin:
                 repeat=repeat,
             )
             output = format_atomic_id_list(atom_ids)
-            self.atomic_index_output.configure(state="normal")
             self.atomic_index_output.delete("1.0", "end")
             self.atomic_index_output.insert("1.0", output)
-            self.atomic_index_output.configure(state="disabled")
             unique_count = len(atom_ids) // repeat
             self.atomic_index_status.set(
                 f"Matched {unique_count} atom(s) at timestep {frame.timestep}; "

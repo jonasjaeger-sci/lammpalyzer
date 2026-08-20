@@ -250,16 +250,38 @@ y-axis. Molecules are assigned stable integer values in first-observation order,
 while the tick labels show either their chemical formulas or SMILES notation.
 The pairwise legend placement is configurable.
 
-The `Distances and angles` tab calculates geometry directly from configured
-trajectory files. Choose `Distance` or `Angle`, select one or more simulations,
-and enter either one atom ID per field or equally sized lists such as `[1, 4]`
-and `[2, 5]`. List elements at the same position form one measurement. Angles
-use the second atom as the vertex (`atom 1 - atom 2 - atom 3`). Distances and
-angle arms use periodic minimum-image displacements, and the resulting values
-are plotted against trajectory timestep in Å or degrees. Optionally, enter one
-or more atom IDs in the chemical-state field to add a secondary y-axis showing
-the molecule containing each atom over time, labelled by either chemical formula
-or SMILES notation.
+The `Geometry` tab calculates distances and angles directly from configured
+trajectory files. Angles retain the three atom-ID fields and use the second atom
+as the vertex (`atom 1 - atom 2 - atom 3`). Distance endpoints can independently
+be atoms, mass-weighted centers of mass (COMs) selected by atom IDs or trajectory
+`mol` IDs, or planes defined by three atom IDs. A flat COM atom list such as
+`[1,2,3]` defines one COM; a nested list such as `[[1,2],[3,4]]` defines two.
+Planes use the same nested syntax when more than one plane is needed. Equal-size
+endpoint selections are paired by position. Unequal selections use their full
+Cartesian product, so atoms `[1,3]` against `[4,5,6]` produce six curves.
+
+Point-to-plane measurements report unsigned orthogonal distances. Plane-to-plane
+selection is rejected because two arbitrary planes do not define one unique
+scalar distance. Intramolecule mode instead uses only the first field. A flat
+atom list calculates every unique pair inside that group, while nested lists
+keep groups separate; molecule-ID mode expands each selected `mol` value into
+its constituent atom pairs. COMs are periodically unwrapped before mass
+weighting. All distances and angle arms respect the configured periodic/fixed
+`boundary` modes, and results are plotted against trajectory timestep in Å or
+degrees. The optional chemical-state field adds a formula- or SMILES-labelled
+secondary y-axis for selected atoms.
+
+The `Snapshot` tab displays bond-derived system state at an entered timestep.
+Atom view shows every atom in the matching trajectory frame, its atom type, its
+calculated `mol_id`, and the formula or SMILES of its component for up to five
+available bond observations before and after the selected observation. Molecule
+view shows every calculated component at the selected timestep together with
+its notation and constituent atom IDs. Snapshot `mol_id` values are zero-based
+connected-component indexes calculated independently for each observation; they
+are not trajectory-provided persistent molecule IDs. Click any displayed
+formula or SMILES cell and use `Ctrl+C`, double-click, or `Copy notation` to put
+it on the clipboard. The formula and SMILES selectors in `Molecule
+visualization` are editable, so copied values can be pasted and rendered there.
 
 All embedded line plots show the nearest series label and its x/y coordinates
 when the mouse pointer is close to a plotted data point.
@@ -435,9 +457,16 @@ The GUI contains tabs for common analysis tasks:
 - `Atomic index generator`: generate a sorted atom-ID list from atom types or a
   trajectory-provided `mol` column in the first frame. Selection values accept
   inclusive `*` ranges such as `1,3,4*7`, and each matched ID can optionally be
-  repeated before copying the list into another tab.
+  repeated. The generated list remains editable so individual IDs can be
+  removed or changed before copying it into another tab.
+- `Geometry`: plot atom, COM, and orthogonal point-to-plane distances or
+  three-atom angles, including intramolecular unique-pair expansion.
+- `Snapshot`: inspect atom membership across nearby analyzed observations or
+  list calculated molecules at one entered timestep. Formula/SMILES cells can
+  be copied individually.
 - `Molecule visualization`: render one or all observed SMILES structures for a
   formula and summarize component charges, ion candidates, and quality flags.
+  Formula and SMILES fields also accept pasted Snapshot notation.
 - `Reaction paths`: view total and per-simulation reaction path counts, copy a
   selected path, export an inclusive timestep range from any configured
   trajectory, and show every occurrence with simulation, timesteps, and atom
@@ -573,15 +602,17 @@ lammpalyze/
   rdf_plotting.py radial distribution plotting and cross-simulation averaging
   structure.py    static structure factor and incoherent scattering calculations
   structure_plotting.py structural-relaxation plotting
-  geometry.py     trajectory pair-distance and three-atom-angle calculations
-  geometry_plotting.py distance-and-angle plotting
+  geometry.py     atom, COM, plane, intramolecule, and angle calculations
+  geometry_plotting.py geometry distance-and-angle plotting
+  snapshot.py     atom and molecule Snapshot table construction
   plotting.py     Matplotlib plotting helpers
   parsers/        species, thermo, computed-data, bond, and trajectory readers
   gui/            Tkinter GUI tabs and application shell
     atomic_indices_tab.py atom-ID generator controls and output
     charge_tab.py trajectory-backed atomic-data plotting tab
     computed_tabs.py pairwise-data and mean-square-displacement tabs
-    geometry_tab.py trajectory distance-and-angle tab
+    geometry_tab.py trajectory Geometry tab
+    snapshot_tab.py atom and molecule Snapshot tab
     reactions_tab.py reaction tables, range export, occurrence listing, and OVITO controls
     pathway_graph.py connected-pathway graph data and layout helpers
     pathway_graph_tab.py pathway graph controls and background rendering

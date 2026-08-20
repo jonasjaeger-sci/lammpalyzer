@@ -30,13 +30,13 @@ def plot_geometry(
     theme: str = "dark",
     plot_settings: PlotSettings | None = None,
 ):
-    """Plot trajectory-derived atom-pair distances or three-atom angles."""
+    """Plot trajectory-derived distances or three-atom angles."""
 
     if kind not in {"distance", "angle"}:
         raise ValueError("Geometry kind must be 'distance' or 'angle'.")
     series = []
     for result in results:
-        atom_label = "-".join(str(atom_id) for atom_id in result.atom_ids)
+        atom_label = result.label or "-".join(str(atom_id) for atom_id in result.atom_ids)
         series.append(
             (
                 pd.Series(result.timesteps),
@@ -44,7 +44,7 @@ def plot_geometry(
                 f"Simulation {result.simulation_index} - {atom_label}",
             )
         )
-    title = "Pair distances" if kind == "distance" else "Three-atom angles"
+    title = "Geometry distances" if kind == "distance" else "Three-atom angles"
     y_label = "Distance (Å)" if kind == "distance" else "Angle (degrees)"
     figure = _plot_computed_series(
         series,

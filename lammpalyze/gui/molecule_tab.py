@@ -45,14 +45,25 @@ class MoleculeTabMixin:
         self.smiles_sim_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_formula_options())
 
         ttk.Label(controls, text="Formula/species").pack(anchor="w")
-        self.smiles_formula_combo = ttk.Combobox(controls, textvariable=self.smiles_formula, state="readonly")
+        self.smiles_formula_combo = ttk.Combobox(
+            controls,
+            textvariable=self.smiles_formula,
+            state="normal",
+        )
         self.smiles_formula_combo.pack(fill="x", pady=(0, 12))
         self.smiles_formula_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_smiles_options())
+        self.smiles_formula_combo.bind("<Return>", lambda _event: self._refresh_smiles_options())
 
         ttk.Label(controls, text="SMILES").pack(anchor="w")
-        self.smiles_combo = ttk.Combobox(controls, textvariable=self.smiles_value, state="readonly", width=42)
+        self.smiles_combo = ttk.Combobox(
+            controls,
+            textvariable=self.smiles_value,
+            state="normal",
+            width=42,
+        )
         self.smiles_combo.pack(fill="x", pady=(0, 12))
         self.smiles_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_smiles_metadata())
+        self.smiles_combo.bind("<Return>", lambda _event: self._refresh_smiles_metadata())
 
         self.smiles_metadata = tk.StringVar()
         ttk.Label(
