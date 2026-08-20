@@ -271,6 +271,18 @@ weighting. All distances and angle arms respect the configured periodic/fixed
 degrees. The optional chemical-state field adds a formula- or SMILES-labelled
 secondary y-axis for selected atoms.
 
+Enable `Only while all measurement atoms are part of` to restrict geometry to
+one or more bond-derived molecule descriptors. Enter one formula/SMILES or a
+Python-style string list such as `["C3H4LiO3", "C2H4O2"]`. `Auto-detect`, the
+default, compares every entry against both the formula and SMILES of each
+component; explicit formula and SMILES modes remain available. At an exact
+shared trajectory/bond timestep, a point is retained only when every atom
+contributing to that individual distance or angle belongs to the same connected
+component and that component exactly matches any one selected descriptor. This
+includes every atom contributing to a COM or plane. Missing observations,
+descriptor changes, and component splits become gaps rather than lines
+connecting across a broken interval.
+
 The `Snapshot` tab displays bond-derived system state at an entered timestep.
 Atom view shows every atom in the matching trajectory frame, its atom type, its
 calculated `mol_id`, and the formula or SMILES of its component for up to five
@@ -282,6 +294,15 @@ are not trajectory-provided persistent molecule IDs. Click any displayed
 formula or SMILES cell and use `Ctrl+C`, double-click, or `Copy notation` to put
 it on the clipboard. The formula and SMILES selectors in `Molecule
 visualization` are editable, so copied values can be pasted and rendered there.
+
+`Molecule visualization` also builds reusable Geometry descriptor lists. Every
+rendered tile in this tab has an `Include in list` checkbox selected by default.
+Choose Formula or SMILES list mode, adjust the tile selections, and click `Add`.
+The two list modes accumulate independently while simulations and species are
+changed, retain first-added order, and ignore duplicates. `Copy list` places the
+visible quoted list on the clipboard for direct use in Geometry's molecule
+membership filter; `Clear` resets only the currently visible Formula or SMILES
+list.
 
 All embedded line plots show the nearest series label and its x/y coordinates
 when the mouse pointer is close to a plotted data point.
@@ -460,13 +481,15 @@ The GUI contains tabs for common analysis tasks:
   repeated. The generated list remains editable so individual IDs can be
   removed or changed before copying it into another tab.
 - `Geometry`: plot atom, COM, and orthogonal point-to-plane distances or
-  three-atom angles, including intramolecular unique-pair expansion.
+  three-atom angles, including intramolecular unique-pair expansion and optional
+  same-molecule formula/SMILES filtering.
 - `Snapshot`: inspect atom membership across nearby analyzed observations or
   list calculated molecules at one entered timestep. Formula/SMILES cells can
   be copied individually.
 - `Molecule visualization`: render one or all observed SMILES structures for a
   formula and summarize component charges, ion candidates, and quality flags.
-  Formula and SMILES fields also accept pasted Snapshot notation.
+  Formula and SMILES fields accept pasted Snapshot notation, and checked
+  structure tiles can be accumulated into copyable Geometry descriptor lists.
 - `Reaction paths`: view total and per-simulation reaction path counts, copy a
   selected path, export an inclusive timestep range from any configured
   trajectory, and show every occurrence with simulation, timesteps, and atom

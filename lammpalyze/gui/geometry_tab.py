@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from lammpalyze.geometry import (
+    MoleculeMembershipFilter,
     atom_id_groups,
     compute_distances,
     compute_geometry,
@@ -14,6 +15,7 @@ from lammpalyze.geometry import (
     parse_atom_ids,
     parse_distance_selections,
     parse_intramolecular_groups,
+    parse_molecule_descriptors,
 )
 from lammpalyze.geometry_plotting import plot_geometry
 
@@ -114,6 +116,35 @@ class GeometryTabMixin:
         )
         self.geometry_hint.pack(anchor="w", pady=(0, 12))
 
+        self.geometry_membership_enabled = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            controls,
+            text="Only while all measurement atoms are part of",
+            variable=self.geometry_membership_enabled,
+            command=self._update_geometry_membership_state,
+        ).pack(anchor="w", pady=(0, 6))
+        self.geometry_membership_notation = tk.StringVar(value="Auto-detect")
+        self.geometry_membership_notation_box = ttk.Combobox(
+            controls,
+            textvariable=self.geometry_membership_notation,
+            values=["Auto-detect", "Chemical formula", "SMILES"],
+            state="disabled",
+        )
+        self.geometry_membership_notation_box.pack(fill="x", pady=(0, 6))
+        self.geometry_membership_descriptors = tk.StringVar()
+        self.geometry_membership_descriptors_entry = ttk.Entry(
+            controls,
+            textvariable=self.geometry_membership_descriptors,
+            state="disabled",
+        )
+        self.geometry_membership_descriptors_entry.pack(fill="x", pady=(0, 4))
+        ttk.Label(
+            controls,
+            text='One value or a string list, e.g. ["C3H4LiO3", "C2H4O2"].',
+            wraplength=270,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 12))
+
         self.geometry_molecule_atoms = tk.StringVar()
         ttk.Label(controls, text="Chemical-state atom ID(s) (optional)").pack(anchor="w")
         ttk.Entry(controls, textvariable=self.geometry_molecule_atoms).pack(
@@ -135,6 +166,15 @@ class GeometryTabMixin:
             fill="x", pady=(8, 0)
         )
         self._update_geometry_fields()
+
+    def _update_geometry_membership_state(self) -> None:
+        """Enable molecule-descriptor controls only when filtering is requested."""
+
+        state = "readonly" if self.geometry_membership_enabled.get() else "disabled"
+        self.geometry_membership_notation_box.configure(state=state)
+        self.geometry_membership_descriptors_entry.configure(
+            state="normal" if self.geometry_membership_enabled.get() else "disabled"
+        )
 
     def _update_geometry_fields(self) -> None:
         """Update endpoint controls and field guidance for the selected measurement."""
@@ -208,6 +248,7 @@ class GeometryTabMixin:
             if not simulations:
                 raise ValueError("Select at least one simulation.")
             kind = self.geometry_kind.get().lower()
+            membership_filter = self._geometry_membership_filter()
             if kind == "angle":
                 columns = [
                     parse_atom_ids(self.geometry_atom_1.get()),
@@ -222,6 +263,7 @@ class GeometryTabMixin:
                     kind,
                     groups,
                     timestep_range=options["step_range"],
+                    membership_filter=membership_filter,
                 )
             elif self.geometry_selection_1.get() in _INTRAMOLECULAR_KINDS:
                 intramolecular_kind = _INTRAMOLECULAR_KINDS[self.geometry_selection_1.get()]
@@ -233,6 +275,7 @@ class GeometryTabMixin:
                     groups,
                     intramolecular_kind,
                     timestep_range=options["step_range"],
+                    membership_filter=membership_filter,
                 )
             else:
                 first_kind = _DISTANCE_SELECTION_KINDS[self.geometry_selection_1.get()]
@@ -245,6 +288,7 @@ class GeometryTabMixin:
                     simulations,
                     pairs,
                     timestep_range=options["step_range"],
+                    membership_filter=membership_filter,
                 )
             molecule_atoms = self._geometry_molecule_atom_ids()
             figure = plot_geometry(
@@ -269,6 +313,21 @@ class GeometryTabMixin:
 
         value = self.geometry_molecule_atoms.get().strip()
         return parse_atom_ids(value) if value else None
+
+    def _geometry_membership_filter(self) -> MoleculeMembershipFilter | None:
+        """Return the optional same-component molecule descriptor filter."""
+
+        if not self.geometry_membership_enabled.get():
+            return None
+        notation = {
+            "Auto-detect": "auto",
+            "Chemical formula": "formula",
+            "SMILES": "smiles",
+        }[self.geometry_membership_notation.get()]
+        descriptors = parse_molecule_descriptors(
+            self.geometry_membership_descriptors.get()
+        )
+        return MoleculeMembershipFilter(tuple(descriptors), notation)
 
     def _save_geometry_plot(self) -> None:
         """Export the displayed trajectory geometry plot as PNG."""

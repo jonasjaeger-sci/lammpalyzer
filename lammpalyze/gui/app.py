@@ -74,6 +74,8 @@ class LammpalyzeGUI(
         self._molecule_gallery_mode = "single"
         self._molecule_gallery_photos = []
         self._molecule_gallery_vars = []
+        self._molecule_gallery_selections = []
+        self._molecule_descriptor_lists = {"formula": [], "smiles": []}
         self._reaction_path_gallery_photos = []
         self._reaction_path_gallery_vars = []
         self._reaction_path_reactant_photos = []
@@ -251,6 +253,8 @@ class LammpalyzeGUI(
         self._molecule_smiles = None
         self._molecule_gallery_photos = []
         self._molecule_gallery_vars = []
+        self._molecule_gallery_selections = []
+        self._molecule_descriptor_lists = {"formula": [], "smiles": []}
         self._reaction_path_gallery_photos = []
         self._reaction_path_gallery_vars = []
         self._reaction_path_reactant_photos = []

@@ -1152,10 +1152,10 @@ def _plot_computed_series(
     x_origin = _time_axis_origin([x_values for x_values, _y_values, _label in series], step_range)
     plotted = 0
     for (x_values, y_values, label), color in zip(series, colors, strict=True):
-        valid = x_values.notna() & y_values.notna()
-        x_values = x_values[valid]
-        y_values = y_values[valid]
-        if x_values.empty:
+        valid_x = x_values.notna()
+        x_values = x_values[valid_x]
+        y_values = y_values[valid_x]
+        if x_values.empty or not y_values.notna().any():
             continue
         display_x_values = _display_time_values(x_values, settings, x_origin)
         ax.plot(display_x_values, y_values, color=color, linewidth=2.0, label=label)
@@ -1188,9 +1188,18 @@ def _plot_computed_series(
                 label=fit_label,
             )
         if running_average_points is not None:
+            gap_groups = y_values.isna().cumsum()
+            running_average = (
+                y_values.groupby(gap_groups)
+                .rolling(window=running_average_points, min_periods=1)
+                .mean()
+                .reset_index(level=0, drop=True)
+                .reindex(y_values.index)
+                .where(y_values.notna())
+            )
             ax.plot(
                 display_x_values,
-                y_values.rolling(window=running_average_points, min_periods=1).mean(),
+                running_average,
                 color=color,
                 linestyle="--",
                 linewidth=1.8,
@@ -1226,7 +1235,7 @@ def _linear_fit_for_series(
     """Return a first-order fit for one computed series inside a timestep range."""
 
     lower, upper = sorted(fit_range)
-    fit_mask = (raw_x_values >= lower) & (raw_x_values <= upper)
+    fit_mask = (raw_x_values >= lower) & (raw_x_values <= upper) & y_values.notna()
     fit_x = np.asarray(display_x_values, dtype=float)[fit_mask]
     fit_y = y_values[fit_mask].to_numpy(dtype=float)
     if len(fit_x) < 2 or len(np.unique(fit_x)) < 2:

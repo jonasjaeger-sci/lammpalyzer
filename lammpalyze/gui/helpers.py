@@ -57,14 +57,22 @@ def ordered_thermo_parameters(columns) -> list[str]:
     return preferred + sorted(available - set(preferred))
 
 
-def molecule_render_size(container_width: int, container_height: int) -> tuple[int, int]:
+def molecule_render_size(
+    container_width: int,
+    container_height: int,
+    *,
+    reserved_height: int = 0,
+) -> tuple[int, int]:
     """Return a molecule image size that follows the available GUI area."""
 
     if container_width <= MOLECULE_IMAGE_PADDING or container_height <= MOLECULE_IMAGE_PADDING:
         return MOLECULE_IMAGE_FALLBACK_SIZE
 
     image_width = min(container_width - MOLECULE_IMAGE_PADDING, MOLECULE_IMAGE_MAX_SIZE[0])
-    image_height = min(container_height - MOLECULE_IMAGE_PADDING, MOLECULE_IMAGE_MAX_SIZE[1])
+    image_height = min(
+        container_height - MOLECULE_IMAGE_PADDING - max(0, reserved_height),
+        MOLECULE_IMAGE_MAX_SIZE[1],
+    )
     return max(1, image_width), max(1, image_height)
 
 

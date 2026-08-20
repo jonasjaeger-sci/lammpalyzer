@@ -17,6 +17,7 @@ from lammpalyze.rdf import ATOM_MASSES
 GeometryKind = Literal["distance", "angle"]
 DistanceSelectionKind = Literal["atom", "com_atoms", "com_molecule", "plane"]
 IntramolecularKind = Literal["atoms", "molecules"]
+MoleculeNotation = Literal["auto", "formula", "smiles"]
 _ATOM_ID_SEPARATOR = re.compile(r"[\s,;]+")
 
 
@@ -45,6 +46,24 @@ DistancePair = tuple[GeometrySelection, GeometrySelection]
 
 
 @dataclass(frozen=True)
+class MoleculeMembershipFilter:
+    """Keep geometry points whose atoms share a matching molecular component."""
+
+    descriptors: tuple[str, ...]
+    notation: MoleculeNotation = "auto"
+
+    def __post_init__(self) -> None:
+        """Validate descriptors and notation at construction time."""
+
+        if not self.descriptors or any(not descriptor.strip() for descriptor in self.descriptors):
+            raise ValueError("Enter at least one molecule descriptor for membership filtering.")
+        if self.notation not in {"auto", "formula", "smiles"}:
+            raise ValueError(
+                "Molecule membership notation must be 'auto', 'formula', or 'smiles'."
+            )
+
+
+@dataclass(frozen=True)
 class GeometrySeries:
     """One geometry measurement followed through one simulation trajectory."""
 
@@ -53,6 +72,39 @@ class GeometrySeries:
     timesteps: np.ndarray
     values: np.ndarray
     label: str | None = None
+
+
+def parse_molecule_descriptors(value: str) -> list[str]:
+    """Parse one descriptor or a Python-style list of formula/SMILES strings."""
+
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("Enter at least one molecule descriptor for membership filtering.")
+    try:
+        parsed = ast.literal_eval(stripped)
+    except (SyntaxError, ValueError):
+        parsed = None
+    if isinstance(parsed, str):
+        raw_descriptors = [parsed]
+    elif isinstance(parsed, (list, tuple)):
+        if not all(isinstance(descriptor, str) for descriptor in parsed):
+            raise ValueError("Molecule descriptor lists must contain only strings.")
+        raw_descriptors = list(parsed)
+    elif parsed is not None:
+        raise ValueError("Molecule descriptors must be a string or a list of strings.")
+    else:
+        raw_descriptors = re.split(r"[;\n]+", stripped)
+        if len(raw_descriptors) == 1 and "," in stripped:
+            raw_descriptors = stripped.split(",")
+
+    descriptors = []
+    for descriptor in raw_descriptors:
+        normalized = descriptor.strip().strip("\"'")
+        if normalized and normalized not in descriptors:
+            descriptors.append(normalized)
+    if not descriptors:
+        raise ValueError("Enter at least one molecule descriptor for membership filtering.")
+    return descriptors
 
 
 def parse_atom_ids(value: str) -> list[int]:
@@ -178,6 +230,7 @@ def compute_geometry(
     kind: GeometryKind,
     groups: list[tuple[int, ...]],
     timestep_range: tuple[float, float] | None = None,
+    membership_filter: MoleculeMembershipFilter | None = None,
 ) -> list[GeometrySeries]:
     """Calculate selected direct atom distances or angles for every frame."""
 
@@ -193,6 +246,7 @@ def compute_geometry(
     for simulation in simulations:
         if simulation.trajectory_path is None:
             continue
+        _validate_membership_data(simulation, membership_filter)
         timesteps: list[int] = []
         values_by_group = [[] for _ in groups]
         for frame in iter_lammpstrj_frames(simulation.trajectory_path, timestep_range):
@@ -201,9 +255,14 @@ def compute_geometry(
             box_lengths = _validated_box_lengths(simulation.index, frame)
             timesteps.append(frame.timestep)
             for values, group in zip(values_by_group, groups, strict=True):
-                values.append(
-                    _geometry_value(kind, group, positions, box_lengths, simulation.boundary)
+                value = _geometry_value(
+                    kind, group, positions, box_lengths, simulation.boundary
                 )
+                if membership_filter and not _matches_molecule_membership(
+                    simulation, frame.timestep, group, membership_filter
+                ):
+                    value = np.nan
+                values.append(value)
 
         _require_timesteps(simulation.index, timesteps)
         for group, values in zip(groups, values_by_group, strict=True):
@@ -217,6 +276,7 @@ def compute_geometry(
             )
     if not results:
         raise ValueError("None of the selected simulations has a trajectory file.")
+    _require_membership_matches(results, membership_filter)
     return results
 
 
@@ -224,6 +284,7 @@ def compute_distances(
     simulations: list[LoadedSimulation],
     pairs: list[DistancePair],
     timestep_range: tuple[float, float] | None = None,
+    membership_filter: MoleculeMembershipFilter | None = None,
 ) -> list[GeometrySeries]:
     """Calculate atom, COM, and point-to-plane distances for every frame."""
 
@@ -233,6 +294,7 @@ def compute_distances(
     for simulation in simulations:
         if simulation.trajectory_path is None:
             continue
+        _validate_membership_data(simulation, membership_filter)
         timesteps: list[int] = []
         values_by_pair = [[] for _ in pairs]
         for frame in iter_lammpstrj_frames(simulation.trajectory_path, timestep_range):
@@ -240,7 +302,14 @@ def compute_distances(
             atoms_by_id = {atom.atom_id: atom for atom in frame.atoms}
             timesteps.append(frame.timestep)
             for values, pair in zip(values_by_pair, pairs, strict=True):
-                values.append(_distance_value(pair, simulation, frame, atoms_by_id, box_lengths))
+                value = _distance_value(pair, simulation, frame, atoms_by_id, box_lengths)
+                if membership_filter:
+                    atom_ids = _distance_pair_atom_ids(pair, frame)
+                    if not _matches_molecule_membership(
+                        simulation, frame.timestep, atom_ids, membership_filter
+                    ):
+                        value = np.nan
+                values.append(value)
 
         _require_timesteps(simulation.index, timesteps)
         for pair, values in zip(pairs, values_by_pair, strict=True):
@@ -256,6 +325,7 @@ def compute_distances(
             )
     if not results:
         raise ValueError("None of the selected simulations has a trajectory file.")
+    _require_membership_matches(results, membership_filter)
     return results
 
 
@@ -264,6 +334,7 @@ def compute_intramolecular_distances(
     groups: list[tuple[int, ...]],
     kind: IntramolecularKind,
     timestep_range: tuple[float, float] | None = None,
+    membership_filter: MoleculeMembershipFilter | None = None,
 ) -> list[GeometrySeries]:
     """Calculate unique atom-pair distances within atom groups or molecules."""
 
@@ -276,6 +347,7 @@ def compute_intramolecular_distances(
     for simulation in simulations:
         if simulation.trajectory_path is None:
             continue
+        _validate_membership_data(simulation, membership_filter)
         timesteps: list[int] = []
         pairs: list[tuple[int, int]] | None = None
         labels: list[str] = []
@@ -289,9 +361,14 @@ def compute_intramolecular_distances(
             box_lengths = _validated_box_lengths(simulation.index, frame)
             timesteps.append(frame.timestep)
             for values, pair in zip(values_by_pair, pairs, strict=True):
-                values.append(
-                    _geometry_value("distance", pair, positions, box_lengths, simulation.boundary)
+                value = _geometry_value(
+                    "distance", pair, positions, box_lengths, simulation.boundary
                 )
+                if membership_filter and not _matches_molecule_membership(
+                    simulation, frame.timestep, pair, membership_filter
+                ):
+                    value = np.nan
+                values.append(value)
 
         _require_timesteps(simulation.index, timesteps)
         if not pairs:
@@ -308,6 +385,7 @@ def compute_intramolecular_distances(
             )
     if not results:
         raise ValueError("None of the selected simulations has a trajectory file.")
+    _require_membership_matches(results, membership_filter)
     return results
 
 
@@ -353,6 +431,118 @@ def _intramolecular_pairs(
             pairs.append(canonical)
             labels.append(f"{prefix}atom {canonical[0]} - atom {canonical[1]}")
     return pairs, labels
+
+
+def _distance_pair_atom_ids(pair: DistancePair, frame: TrajectoryFrame) -> tuple[int, ...]:
+    """Return every atom contributing to one distance measurement in a frame."""
+
+    atom_ids = []
+    for selection in pair:
+        if selection.kind != "com_molecule":
+            atom_ids.extend(selection.ids)
+            continue
+        molecule_id = selection.ids[0]
+        if any(atom.values.get("mol") is None for atom in frame.atoms):
+            raise ValueError("COM molecule-ID mode requires a 'mol' trajectory column.")
+        molecule_atom_ids = [
+            atom.atom_id
+            for atom in frame.atoms
+            if int(atom.values["mol"]) == molecule_id
+        ]
+        if not molecule_atom_ids:
+            raise ValueError(
+                f"Timestep {frame.timestep} lacks trajectory molecule ID {molecule_id}."
+            )
+        atom_ids.extend(molecule_atom_ids)
+    return tuple(dict.fromkeys(atom_ids))
+
+
+def _validate_membership_data(
+    simulation: LoadedSimulation,
+    membership_filter: MoleculeMembershipFilter | None,
+) -> None:
+    """Require bond-derived component data when membership filtering is enabled."""
+
+    if membership_filter is None:
+        return
+    if membership_filter.notation == "formula":
+        has_molecule_values = bool(simulation.chem_formulas)
+    elif membership_filter.notation == "smiles":
+        has_molecule_values = bool(simulation.smiles)
+    else:
+        has_molecule_values = bool(simulation.chem_formulas or simulation.smiles)
+    if not simulation.smiles_id or not has_molecule_values:
+        notation = (
+            "formula or SMILES"
+            if membership_filter.notation == "auto"
+            else membership_filter.notation
+        )
+        raise ValueError(
+            f"Simulation {simulation.index} has no bond-derived "
+            f"{notation} molecule data for geometry membership filtering."
+        )
+
+
+def _matches_molecule_membership(
+    simulation: LoadedSimulation,
+    timestep: int,
+    atom_ids: tuple[int, ...],
+    membership_filter: MoleculeMembershipFilter,
+) -> bool:
+    """Return whether all measurement atoms share one matching component."""
+
+    components = (simulation.smiles_id or {}).get(timestep)
+    formula_labels = (simulation.chem_formulas or {}).get(timestep)
+    smiles_labels = (simulation.smiles or {}).get(timestep)
+    if components is None:
+        return False
+    required_atoms = {str(atom_id) for atom_id in atom_ids}
+    allowed_descriptors = set(membership_filter.descriptors)
+
+    def component_matches(component_index: int) -> bool:
+        if membership_filter.notation in {"auto", "formula"}:
+            if (
+                formula_labels is not None
+                and component_index < len(formula_labels)
+                and formula_labels[component_index] in allowed_descriptors
+            ):
+                return True
+        if membership_filter.notation in {"auto", "smiles"}:
+            if (
+                smiles_labels is not None
+                and component_index < len(smiles_labels)
+                and smiles_labels[component_index] in allowed_descriptors
+            ):
+                return True
+        return False
+
+    return any(
+        component_matches(component_index)
+        and required_atoms.issubset({str(atom_id) for atom_id in component_atoms})
+        for component_index, component_atoms in enumerate(components)
+    )
+
+
+def _require_membership_matches(
+    results: list[GeometrySeries],
+    membership_filter: MoleculeMembershipFilter | None,
+) -> None:
+    """Report an empty molecule-filtered geometry selection clearly."""
+
+    if membership_filter is None:
+        return
+    if not any(np.isfinite(result.values).any() for result in results):
+        descriptors = ", ".join(repr(value) for value in membership_filter.descriptors)
+        notation = (
+            "formula or SMILES"
+            if membership_filter.notation == "auto"
+            else membership_filter.notation
+        )
+        raise ValueError(
+            "No geometry data points have all measurement atoms in one matching "
+            f"{notation} component ({descriptors}) at an exact shared "
+            "trajectory/bond timestep."
+        )
 
 
 def _distance_value(

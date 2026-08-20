@@ -2,7 +2,14 @@
 
 import pytest
 
-from lammpalyze.smiles import canonicalize_smiles, reaction_smiles_groups, reaction_smiles_path, smiles_for_formula
+from lammpalyze.smiles import (
+    canonicalize_smiles,
+    extend_molecule_descriptor_list,
+    format_molecule_descriptor_list,
+    reaction_smiles_groups,
+    reaction_smiles_path,
+    smiles_for_formula,
+)
 
 
 def test_smiles_for_formula_returns_observed_values():
@@ -12,6 +19,23 @@ def test_smiles_for_formula_returns_observed_values():
     smiles = {0: ["[H][H]", "[O]"], 1: ["[H][H]"]}
 
     assert smiles_for_formula(formulas, smiles, "H2") == ["[H][H]"]
+
+
+def test_extend_molecule_descriptor_list_preserves_order_and_omits_duplicates():
+    """Grow a descriptor list across gallery selections without repeated values."""
+
+    assert extend_molecule_descriptor_list(
+        ["[Li+]"],
+        [" CCO ", "[Li+]", "", "[O-]C=O"],
+    ) == ["[Li+]", "CCO", "[O-]C=O"]
+
+
+def test_format_molecule_descriptor_list_produces_geometry_ready_strings():
+    """Produce a quoted list that can be pasted into the Geometry filter."""
+
+    assert format_molecule_descriptor_list(["C3H4LiO3", "[Li+]"]) == (
+        '["C3H4LiO3", "[Li+]"]'
+    )
 
 
 def test_reaction_smiles_groups_parses_formatted_path():

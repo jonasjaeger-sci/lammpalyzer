@@ -2,10 +2,13 @@
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from lammpalyze.analysis import LoadedSimulation
 from lammpalyze.geometry import (
+    GeometrySeries,
+    MoleculeMembershipFilter,
     atom_id_groups,
     compute_distances,
     compute_geometry,
@@ -15,6 +18,7 @@ from lammpalyze.geometry import (
     parse_atom_ids,
     parse_distance_selections,
     parse_intramolecular_groups,
+    parse_molecule_descriptors,
 )
 from lammpalyze.geometry_plotting import plot_geometry
 
@@ -72,6 +76,17 @@ def test_parse_atom_id_groups_preserves_nested_groups():
     ]
 
 
+def test_parse_molecule_descriptors_accepts_single_and_list_inputs():
+    """Accept one descriptor, Python string lists, and compact separated values."""
+
+    assert parse_molecule_descriptors("C3H4LiO3") == ["C3H4LiO3"]
+    assert parse_molecule_descriptors('["C3H4LiO3", "[Li+]"]') == [
+        "C3H4LiO3",
+        "[Li+]",
+    ]
+    assert parse_molecule_descriptors("C3H4LiO3; LiO") == ["C3H4LiO3", "LiO"]
+
+
 def test_compute_geometry_uses_minimum_image_distances(tmp_path: Path):
     """Do not produce a box-length jump when a pair straddles a boundary."""
 
@@ -111,6 +126,148 @@ def test_compute_geometry_reports_missing_atom_id(tmp_path: Path):
 
     with pytest.raises(ValueError, match=r"Simulation 7, timestep 0 lacks atom ID\(s\): 9"):
         compute_geometry([simulation], "distance", [(1, 9)])
+
+
+def test_geometry_membership_filter_requires_one_matching_shared_component(tmp_path: Path):
+    """Keep a point only while all measurement atoms share one selected molecule type."""
+
+    simulation = _simulation(
+        tmp_path,
+        _trajectory_series(
+            {
+                100: ["1 1 0 0 0", "2 1 1 0 0", "3 1 2 0 0"],
+                200: ["1 1 0 0 0", "2 1 2 0 0", "3 1 3 0 0"],
+                300: ["1 1 0 0 0", "2 1 3 0 0", "3 1 4 0 0"],
+                400: ["1 1 0 0 0", "2 1 4 0 0", "3 1 5 0 0"],
+            }
+        ),
+    )
+    simulation.smiles_id = {
+        100: [["1", "2"], ["3"]],
+        200: [["1"], ["2"], ["3"]],
+        300: [["1", "2"], ["3"]],
+    }
+    simulation.chem_formulas = {
+        100: ["C3H4LiO3", "Li"],
+        200: ["C3H4LiO3", "C3H4LiO3", "Li"],
+        300: ["Other", "Li"],
+    }
+    membership_filter = MoleculeMembershipFilter(("C3H4LiO3",), "formula")
+
+    pairs = distance_pairs(
+        parse_distance_selections("1", "atom"),
+        parse_distance_selections("2", "atom"),
+    )
+    result = compute_distances(
+        [simulation],
+        pairs,
+        membership_filter=membership_filter,
+    )[0]
+
+    assert result.timesteps.tolist() == [100, 200, 300, 400]
+    assert result.values[0] == pytest.approx(1.0)
+    assert np.isnan(result.values[1:]).all()
+
+
+def test_geometry_membership_filter_accepts_multiple_smiles_alternatives(tmp_path: Path):
+    """Treat several selected descriptors as alternatives while retaining plot gaps."""
+
+    simulation = _simulation(
+        tmp_path,
+        _trajectory_series(
+            {
+                100: ["1 1 0 0 0", "2 1 1 0 0", "3 1 1 1 0"],
+                200: ["1 1 0 0 0", "2 1 2 0 0", "3 1 2 1 0"],
+                300: ["1 1 0 0 0", "2 1 3 0 0", "3 1 3 1 0"],
+            }
+        ),
+    )
+    simulation.smiles_id = {
+        100: [["1", "2", "3"]],
+        200: [["1", "2"], ["3"]],
+        300: [["1", "2", "3"]],
+    }
+    simulation.smiles = {
+        100: ["[A][B][C]"],
+        200: ["[A][B]", "[C]"],
+        300: ["[A]=[B][C]"],
+    }
+    membership_filter = MoleculeMembershipFilter(
+        ("[A][B][C]", "[A]=[B][C]"),
+        "smiles",
+    )
+
+    result = compute_geometry(
+        [simulation],
+        "angle",
+        [(1, 2, 3)],
+        membership_filter=membership_filter,
+    )[0]
+
+    assert np.isfinite(result.values[[0, 2]]).all()
+    assert np.isnan(result.values[1])
+
+
+def test_geometry_membership_filter_auto_detects_smiles_for_each_atom_pair(tmp_path: Path):
+    """Match any pasted SMILES alternative independently for every requested pair."""
+
+    first_ids = [1388, 1398, 1408, 1418]
+    second_ids = [1385, 1395, 1405, 1415]
+    rows = []
+    for pair_index, (first_id, second_id) in enumerate(
+        zip(first_ids, second_ids, strict=True)
+    ):
+        rows.extend(
+            [
+                f"{first_id} 1 {pair_index * 2} 0 0",
+                f"{second_id} 1 {pair_index * 2 + 1} 0 0",
+            ]
+        )
+    simulation = _simulation(tmp_path, _trajectory_series({100: rows}))
+    simulation.smiles_id = {
+        100: [[str(first_id), str(second_id)] for first_id, second_id in zip(
+            first_ids, second_ids, strict=True
+        )]
+    }
+    first_smiles = "[H][C]1([H])[O][C](=[O])[O][C]1([H])[H]"
+    second_smiles = "[H][C]1([H])[O][C]([O][Li])[O][C]1([H])[H]"
+    simulation.chem_formulas = {100: ["C3H4O3", "C3H4LiO3", "C3H4O3", "C3H4LiO3"]}
+    simulation.smiles = {
+        100: [first_smiles, second_smiles, first_smiles, second_smiles]
+    }
+    membership_filter = MoleculeMembershipFilter(
+        ("[unused]", first_smiles, second_smiles)
+    )
+    pairs = distance_pairs(
+        parse_distance_selections(str(first_ids), "atom"),
+        parse_distance_selections(str(second_ids), "atom"),
+    )
+
+    results = compute_distances(
+        [simulation],
+        pairs,
+        membership_filter=membership_filter,
+    )
+
+    assert membership_filter.notation == "auto"
+    assert len(results) == 4
+    assert all(result.values == pytest.approx([1.0]) for result in results)
+
+
+def test_geometry_membership_filter_reports_no_matching_points(tmp_path: Path):
+    """Explain when no exact shared timestep satisfies the molecule constraint."""
+
+    simulation = _simulation(tmp_path, _trajectory_text("0 0 0", "1 0 0", "1 1 0"))
+    simulation.smiles_id = {0: [["1", "2"], ["3"]]}
+    simulation.chem_formulas = {0: ["AB", "C"]}
+
+    with pytest.raises(ValueError, match="No geometry data points"):
+        compute_geometry(
+            [simulation],
+            "distance",
+            [(1, 2)],
+            membership_filter=MoleculeMembershipFilter(("Wanted",), "formula"),
+        )
 
 
 def test_compute_distances_uses_periodic_mass_weighted_atom_com(tmp_path: Path):
@@ -160,6 +317,35 @@ def test_compute_distances_resolves_molecule_com_by_mol_column(tmp_path: Path):
     results = compute_distances([simulation], pairs)
 
     assert results[0].values == pytest.approx([3.5])
+
+
+def test_com_molecule_membership_filter_checks_every_constituent_atom(tmp_path: Path):
+    """Include all trajectory-molecule atoms when applying a descriptor constraint."""
+
+    simulation = _simulation(
+        tmp_path,
+        _custom_trajectory(
+            [
+                "1 1 0 0 0 1 1",
+                "2 1 2 0 0 1 10",
+                "3 1 4 0 0 1 10",
+            ],
+            columns="id type x y z mass mol",
+        ),
+    )
+    simulation.smiles_id = {0: [["1", "2"], ["3"]]}
+    simulation.chem_formulas = {0: ["Target", "Target"]}
+    pairs = distance_pairs(
+        parse_distance_selections("1", "atom"),
+        parse_distance_selections("10", "com_molecule"),
+    )
+
+    with pytest.raises(ValueError, match="No geometry data points"):
+        compute_distances(
+            [simulation],
+            pairs,
+            membership_filter=MoleculeMembershipFilter(("Target",), "formula"),
+        )
 
 
 def test_compute_distances_calculates_orthogonal_point_plane_distance(tmp_path: Path):
@@ -240,6 +426,34 @@ def test_compute_intramolecular_distances_expands_molecule_ids(tmp_path: Path):
     assert results[0].label == "mol 10: atom 1 - atom 2"
 
 
+def test_intramolecular_membership_filter_masks_pairs_from_other_components(tmp_path: Path):
+    """Apply the same descriptor rule independently to every expanded atom pair."""
+
+    simulation = _simulation(
+        tmp_path,
+        _custom_trajectory(
+            [
+                "1 1 0 0 0",
+                "2 1 1 0 0",
+                "3 1 0 2 0",
+                "4 1 0 3 0",
+            ]
+        ),
+    )
+    simulation.smiles_id = {0: [["1", "2"], ["3", "4"]]}
+    simulation.chem_formulas = {0: ["Target", "Other"]}
+
+    results = compute_intramolecular_distances(
+        [simulation],
+        [(1, 2), (3, 4)],
+        "atoms",
+        membership_filter=MoleculeMembershipFilter(("Target",), "formula"),
+    )
+
+    assert np.isfinite(results[0].values[0])
+    assert np.isnan(results[1].values[0])
+
+
 def test_plot_geometry_labels_angle_units(tmp_path: Path):
     """Render computed geometry with atom IDs and physical units."""
 
@@ -286,6 +500,24 @@ def test_plot_geometry_adds_multiple_atom_molecule_tracks(tmp_path: Path):
     ]
 
 
+def test_plot_geometry_preserves_filtered_nan_gaps():
+    """Do not draw a continuous line across excluded molecule-membership intervals."""
+
+    result = GeometrySeries(
+        simulation_index=7,
+        atom_ids=(1, 2),
+        timesteps=np.array([100, 200, 300]),
+        values=np.array([1.0, np.nan, 1.5]),
+    )
+
+    figure = plot_geometry([result], "distance", running_average_points=3)
+
+    assert np.isnan(figure.axes[0].lines[0].get_ydata()[1])
+    running_average = figure.axes[0].lines[1].get_ydata()
+    assert np.isnan(running_average[1])
+    assert running_average[2] == pytest.approx(1.5)
+
+
 def _simulation(tmp_path: Path, text: str) -> LoadedSimulation:
     """Create one trajectory-backed simulation fixture."""
 
@@ -326,3 +558,27 @@ ITEM: BOX BOUNDS pp pp pp
 ITEM: ATOMS {columns}
 {chr(10).join(rows)}
 """
+
+
+def _trajectory_series(
+    rows_by_timestep: dict[int, list[str]],
+    columns: str = "id type x y z",
+) -> str:
+    """Return several trajectory frames with a shared atom-table layout."""
+
+    frames = []
+    for timestep, rows in rows_by_timestep.items():
+        frames.append(
+            f"""ITEM: TIMESTEP
+{timestep}
+ITEM: NUMBER OF ATOMS
+{len(rows)}
+ITEM: BOX BOUNDS pp pp pp
+0 10
+0 10
+0 10
+ITEM: ATOMS {columns}
+{chr(10).join(rows)}
+"""
+        )
+    return "".join(frames)

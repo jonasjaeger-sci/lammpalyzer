@@ -21,6 +21,7 @@ from lammpalyze.gui.helpers import (
     parse_timestep_values,
     suffixed_image_output_path,
 )
+from lammpalyze.gui.molecule_tab import _reset_molecule_gallery_columns
 from lammpalyze.gui.pathway_graph import build_pathway_graph, pathway_graph_choices, pathway_graph_image_extent
 from lammpalyze.gui.rdf_tab import rdf_snapshot_results
 from lammpalyze.gui.canvas import _format_hover_value, _nearest_line_point
@@ -44,8 +45,42 @@ def test_molecule_render_size_follows_available_area():
     """Scale molecule render sizes to the available GUI area."""
 
     assert molecule_render_size(900, 700) == (876, 676)
+    assert molecule_render_size(900, 700, reserved_height=112) == (876, 564)
     assert molecule_render_size(1, 1) == (720, 520)
     assert molecule_render_size(3000, 2200) == (1800, 1400)
+
+
+def test_molecule_gallery_resets_columns_before_switching_to_single_view():
+    """Do not retain invisible equal-width columns from the all-structures view."""
+
+    class Gallery:
+        """Record Tk-style column configuration calls."""
+
+        def __init__(self):
+            """Initialize the recorded configuration list."""
+
+            self.configurations = []
+
+        @staticmethod
+        def grid_size():
+            """Report the column and row counts from a previous gallery."""
+
+            return 4, 3
+
+        def columnconfigure(self, column, **options):
+            """Record one reset operation."""
+
+            self.configurations.append((column, options))
+
+    gallery = Gallery()
+
+    _reset_molecule_gallery_columns(gallery)
+
+    assert [column for column, _options in gallery.configurations] == [0, 1, 2, 3]
+    assert all(
+        options == {"minsize": 0, "pad": 0, "weight": 0, "uniform": ""}
+        for _column, options in gallery.configurations
+    )
 
 
 def test_ordered_thermo_parameters_keeps_nondefault_columns():

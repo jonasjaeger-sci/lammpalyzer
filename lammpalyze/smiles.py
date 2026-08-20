@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from io import BytesIO
 
 try:
@@ -72,6 +73,26 @@ def smiles_for_formula(
             if observed_formula == formula:
                 values.add(smiles_by_time[timestep][index])
     return sorted(values)
+
+
+def extend_molecule_descriptor_list(
+    existing: list[str],
+    additions: list[str],
+) -> list[str]:
+    """Append non-empty molecule descriptors once while preserving their order."""
+
+    combined = list(existing)
+    for descriptor in additions:
+        normalized = descriptor.strip()
+        if normalized and normalized not in combined:
+            combined.append(normalized)
+    return combined
+
+
+def format_molecule_descriptor_list(descriptors: list[str]) -> str:
+    """Format molecule descriptors as a quoted list accepted by Geometry."""
+
+    return json.dumps(descriptors, ensure_ascii=False)
 
 
 def reaction_smiles_groups(reaction: str) -> tuple[list[str], list[str]]:
