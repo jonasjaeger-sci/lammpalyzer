@@ -313,6 +313,10 @@ timestep size, defaulting to `0.5 fs`, and a display unit, defaulting to `ps`.
 It can reset the displayed x-origin to zero for production-run chunks, and it
 also provides independent logarithmic x- and y-axis toggles.
 
+Plot legends are hidden by default in every analysis tab. Each tab with
+labelled curves provides a `Legend placement` selector for showing the legend
+inside the axes or outside it above, below, to the left, or to the right.
+
 The `Mean-square displacement` tab reads computed tables with a `TimeStep`
 header followed by numeric data columns. Every file/column combination appears
 in its scrollable selector, for example `MSD1 - c_msd_C[1]`, with select-all and

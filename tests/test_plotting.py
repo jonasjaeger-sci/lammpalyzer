@@ -51,6 +51,50 @@ def test_plot_thermo_returns_combined_and_average_figures():
     assert figures[1].axes[0].get_title() == "Average Temp"
 
 
+def test_plot_legends_are_hidden_by_default():
+    """Do not add legends until the caller chooses a placement."""
+
+    simulations = [
+        LoadedSimulation(
+            index=1,
+            thermo_df=pd.DataFrame({"Step": [0, 1], "Temp": [300.0, 310.0]}),
+        )
+    ]
+
+    figures = plot_thermo(simulations, "Temp")
+
+    assert all(figure.axes[0].get_legend() is None for figure in figures)
+
+
+@pytest.mark.parametrize(
+    ("placement", "matplotlib_location", "anchor"),
+    [
+        ("Outside above", 8, (0.5, 1.02)),
+        ("Outside below", 9, (0.5, -0.16)),
+        ("Outside left", 7, (-0.02, 0.5)),
+        ("Outside right", 6, (1.02, 0.5)),
+    ],
+)
+def test_plot_thermo_supports_outside_legends(placement, matplotlib_location, anchor):
+    """Anchor outside legends on each requested side of the plotting axes."""
+
+    simulations = [
+        LoadedSimulation(
+            index=1,
+            thermo_df=pd.DataFrame({"Step": [0, 1], "Temp": [300.0, 310.0]}),
+        )
+    ]
+
+    figure = plot_thermo(simulations, "Temp", legend_location=placement)[0]
+    legend = figure.axes[0].get_legend()
+
+    assert legend is not None
+    assert legend._loc == matplotlib_location  # pylint: disable=protected-access
+    assert legend.get_bbox_to_anchor()._bbox.bounds[:2] == pytest.approx(  # pylint: disable=protected-access
+        anchor
+    )
+
+
 def test_plot_thermo_applies_step_range_to_both_figures():
     """Apply a requested step range to both thermo figures."""
 

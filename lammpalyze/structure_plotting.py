@@ -6,13 +6,13 @@ import matplotlib.pyplot as plt
 
 from lammpalyze.plotting import (
     PlotSettings,
+    _add_legend,
     _display_time_values,
     _line_colors,
     _style_axes,
     _time_axis_origin,
     _theme_colors,
     _time_axis_label,
-    _validated_legend_location,
 )
 from lammpalyze.structure import StructuralRelaxationResult
 
@@ -21,7 +21,7 @@ def plot_structural_relaxation(
     results: list[StructuralRelaxationResult],
     *,
     element_label: str = "All atoms",
-    legend_location: str = "best",
+    legend_location: str = "none",
     theme: str = "dark",
     plot_settings: PlotSettings | None = None,
 ):
@@ -104,6 +104,4 @@ def plot_structural_relaxation(
 def _style_legend(axis, legend_location: str, style: dict[str, str]) -> None:
     """Apply the shared legend styling."""
 
-    legend = axis.legend(loc=_validated_legend_location(legend_location), frameon=False)
-    for text in legend.get_texts():
-        text.set_color(style["text"])
+    _add_legend(axis, legend_location, style)

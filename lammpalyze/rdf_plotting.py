@@ -11,11 +11,11 @@ from lammpalyze.plotting import (
     PlotSettings,
     ReferenceLines,
     _add_reference_lines,
+    _add_legend,
     _inverse_hex_color,
     _line_colors,
     _style_axes,
     _theme_colors,
-    _validated_legend_location,
     _validated_running_average_points,
 )
 from lammpalyze.rdf import RDFResult
@@ -27,7 +27,7 @@ def plot_rdf(
     element_b: str,
     reference_lines: ReferenceLines | None = None,
     running_average_points: int | None = None,
-    legend_location: str = "best",
+    legend_location: str = "none",
     theme: str = "dark",
     gradient_colors: tuple[str, str] | None = None,
     plot_settings: PlotSettings | None = None,
@@ -78,9 +78,7 @@ def plot_rdf(
         plot_settings=plot_settings,
     )
     _add_reference_lines(ax, reference_lines, color=style["text"])
-    legend = ax.legend(loc=_validated_legend_location(legend_location), frameon=False)
-    for text in legend.get_texts():
-        text.set_color(style["text"])
+    _add_legend(ax, legend_location, style)
     fig.tight_layout()
 
     try:
@@ -146,9 +144,7 @@ def _plot_rdf_average(
         plot_settings=plot_settings,
     )
     _add_reference_lines(ax, reference_lines, color=style["text"])
-    legend = ax.legend(loc=_validated_legend_location(legend_location), frameon=False)
-    for text in legend.get_texts():
-        text.set_color(style["text"])
+    _add_legend(ax, legend_location, style)
     fig.tight_layout()
     return fig
 

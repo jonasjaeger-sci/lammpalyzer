@@ -26,7 +26,7 @@ def plot_geometry(
     y_range: tuple[float, float] | None = None,
     running_average_points: int | None = None,
     reference_lines: ReferenceLines | None = None,
-    legend_location: str = "best",
+    legend_location: str = "none",
     theme: str = "dark",
     plot_settings: PlotSettings | None = None,
 ):

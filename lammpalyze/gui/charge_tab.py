@@ -18,6 +18,7 @@ from lammpalyze.atomic import (
     collect_element_atomic_series,
     parse_atom_ids,
 )
+from lammpalyze.gui.helpers import LEGEND_PLACEMENTS
 from lammpalyze.plotting import plot_collected_atomic_series
 
 
@@ -161,6 +162,15 @@ class ChargeTabMixin:
             state="readonly",
         ).pack(fill="x", pady=(0, 12))
 
+        self.charge_legend_location = tk.StringVar(value="None")
+        ttk.Label(controls, text="Legend placement").pack(anchor="w")
+        ttk.Combobox(
+            controls,
+            textvariable=self.charge_legend_location,
+            values=LEGEND_PLACEMENTS,
+            state="readonly",
+        ).pack(fill="x", pady=(0, 12))
+
         self.atomic_plot_button = ttk.Button(controls, text="Plot", command=self._plot_charges)
         self.atomic_plot_button.pack(fill="x")
         ttk.Button(controls, text="Export PNG", command=self._save_charge_plot).pack(
@@ -232,6 +242,7 @@ class ChargeTabMixin:
                 and self.atomic_show_individual_atoms.get(),
                 uncertainty=uncertainty,
                 step_range=self._charge_step_range(),
+                legend_location=self.charge_legend_location.get(),
                 theme=self.charge_theme.get(),
                 plot_settings=self._plot_settings(),
             )
@@ -248,6 +259,7 @@ class ChargeTabMixin:
         include_individual_element_atoms: bool,
         uncertainty: str,
         step_range: tuple[float, float] | None,
+        legend_location: str,
         theme: str,
         plot_settings,
     ) -> None:
@@ -270,6 +282,7 @@ class ChargeTabMixin:
             "include_individual_element_atoms": include_individual_element_atoms,
             "uncertainty": uncertainty,
             "step_range": step_range,
+            "legend_location": legend_location,
             "theme": theme,
             "plot_settings": plot_settings,
         }
@@ -357,6 +370,7 @@ class ChargeTabMixin:
                     uncertainty=options["uncertainty"],
                     show_uncertainty=bool(options["elements"]),
                     step_range=options["step_range"],
+                    legend_location=options["legend_location"],
                     theme=options["theme"],
                     plot_settings=options["plot_settings"],
                 )
@@ -371,6 +385,7 @@ class ChargeTabMixin:
                 uncertainty=options["uncertainty"],
                 show_uncertainty=True,
                 step_range=options["step_range"],
+                legend_location=options["legend_location"],
                 theme=options["theme"],
                 plot_settings=options["plot_settings"],
             ),
@@ -380,6 +395,7 @@ class ChargeTabMixin:
                 uncertainty="none",
                 show_uncertainty=False,
                 step_range=options["step_range"],
+                legend_location=options["legend_location"],
                 theme=options["theme"],
                 title=f"Individual {element_label} atoms: {property_label}",
                 individual_legend=True,

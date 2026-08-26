@@ -30,6 +30,7 @@ TIME_UNITS_IN_FS = {
     "s": 1_000_000_000_000_000.0,
 }
 LEGEND_LOCATIONS = {
+    "none",
     "best",
     "upper right",
     "upper left",
@@ -40,6 +41,17 @@ LEGEND_LOCATIONS = {
     "lower center",
     "upper center",
     "center",
+    "outside above",
+    "outside below",
+    "outside left",
+    "outside right",
+}
+
+OUTSIDE_LEGEND_LOCATIONS = {
+    "outside above": ("lower center", (0.5, 1.02)),
+    "outside below": ("upper center", (0.5, -0.16)),
+    "outside left": ("center right", (-0.02, 0.5)),
+    "outside right": ("center left", (1.02, 0.5)),
 }
 
 SPECIES_DARK_COLORS = [
@@ -130,6 +142,7 @@ def plot_species(
     reference_lines: ReferenceLines | None = None,
     step_range: tuple[float, float] | None = None,
     excluded_timesteps: list[int] | None = None,
+    legend_location: str = "none",
     theme: str = "dark",
     data_source: str = "lammps",
     plot_settings: PlotSettings | None = None,
@@ -149,6 +162,7 @@ def plot_species(
             style,
             normalized_source,
             settings,
+            legend_location,
         ),
         _plot_species_molecule_counts(
             simulations,
@@ -158,6 +172,7 @@ def plot_species(
             style,
             normalized_source,
             settings,
+            legend_location,
         ),
     ]
 
@@ -200,6 +215,7 @@ def _plot_species_counts(
     style: dict[str, str] | None = None,
     data_source: str = "lammps",
     plot_settings: PlotSettings | None = None,
+    legend_location: str = "none",
 ):
     """Plot selected species counts over time for each simulation."""
 
@@ -235,21 +251,9 @@ def _plot_species_counts(
     _add_reference_lines(ax, _display_reference_lines(reference_lines, settings, x_origin), color=style["text"])
 
     if plotted_lines:
-        legend_columns = min(max(1, plotted_lines // 6 + 1), 5)
-        handles, labels = ax.get_legend_handles_labels()
-        legend = fig.legend(
-            handles,
-            labels,
-            loc="upper center",
-            bbox_to_anchor=(0.5, 0.99),
-            ncol=legend_columns,
-            frameon=False,
-            fontsize="small",
-        )
-        for text in legend.get_texts():
-            text.set_color(style["text"])
+        _add_legend(ax, legend_location, style, fontsize="small")
 
-    fig.tight_layout(rect=(0, 0, 1, 0.82))
+    fig.tight_layout()
     return fig
 
 
@@ -261,6 +265,7 @@ def _plot_species_molecule_counts(
     style: dict[str, str] | None = None,
     data_source: str = "lammps",
     plot_settings: PlotSettings | None = None,
+    legend_location: str = "none",
 ):
     """Plot the total number of molecules over time for each simulation."""
 
@@ -293,9 +298,7 @@ def _plot_species_molecule_counts(
     _add_reference_lines(ax, _display_reference_lines(reference_lines, settings, x_origin), color=style["text"])
 
     if plotted_lines:
-        legend = ax.legend(frameon=False)
-        for text in legend.get_texts():
-            text.set_color(style["text"])
+        _add_legend(ax, legend_location, style)
 
     fig.tight_layout()
     return fig
@@ -416,6 +419,7 @@ def plot_charge_evolution(
     *,
     uncertainty: str = "band",
     step_range: tuple[float, float] | None = None,
+    legend_location: str = "none",
     theme: str = "dark",
     plot_settings: PlotSettings | None = None,
 ):
@@ -493,9 +497,7 @@ def plot_charge_evolution(
         plot_settings=settings,
     )
     _apply_step_range(ax, step_range, settings, x_origin)
-    legend = ax.legend(frameon=False, fontsize="small")
-    for text in legend.get_texts():
-        text.set_color(style["text"])
+    _add_legend(ax, legend_location, style, fontsize="small")
     fig.tight_layout()
     return fig
 
@@ -508,6 +510,7 @@ def plot_atomic_data(
     atom_ids: list[int] | None = None,
     uncertainty: str = "band",
     step_range: tuple[float, float] | None = None,
+    legend_location: str = "none",
     theme: str = "dark",
     plot_settings: PlotSettings | None = None,
 ):
@@ -530,6 +533,7 @@ def plot_atomic_data(
         uncertainty=uncertainty,
         show_uncertainty=bool(elements),
         step_range=step_range,
+        legend_location=legend_location,
         theme=theme,
         plot_settings=plot_settings,
     )
@@ -545,6 +549,7 @@ def plot_atomic_data_figures(
     max_individual_element_atoms: int | None = 200,
     uncertainty: str = "band",
     step_range: tuple[float, float] | None = None,
+    legend_location: str = "none",
     theme: str = "dark",
     plot_settings: PlotSettings | None = None,
 ) -> list:
@@ -559,6 +564,7 @@ def plot_atomic_data_figures(
                 atom_ids=atom_ids,
                 uncertainty=uncertainty,
                 step_range=step_range,
+                legend_location=legend_location,
                 theme=theme,
                 plot_settings=plot_settings,
             )
@@ -583,6 +589,7 @@ def plot_atomic_data_figures(
             uncertainty=uncertainty,
             show_uncertainty=True,
             step_range=step_range,
+            legend_location=legend_location,
             theme=theme,
             plot_settings=plot_settings,
         ),
@@ -593,6 +600,7 @@ def plot_atomic_data_figures(
             uncertainty="none",
             show_uncertainty=False,
             step_range=step_range,
+            legend_location=legend_location,
             theme=theme,
             individual_legend=True,
             plot_settings=plot_settings,
@@ -607,6 +615,7 @@ def plot_collected_atomic_series(
     uncertainty: str = "band",
     show_uncertainty: bool = True,
     step_range: tuple[float, float] | None = None,
+    legend_location: str = "none",
     theme: str = "dark",
     title: str | None = None,
     individual_legend: bool = False,
@@ -622,6 +631,7 @@ def plot_collected_atomic_series(
         uncertainty=uncertainty,
         show_uncertainty=show_uncertainty,
         step_range=step_range,
+        legend_location=legend_location,
         theme=theme,
         individual_legend=individual_legend,
         plot_settings=plot_settings,
@@ -636,6 +646,7 @@ def _plot_atomic_series(
     uncertainty: str,
     show_uncertainty: bool,
     step_range: tuple[float, float] | None,
+    legend_location: str,
     theme: str,
     individual_legend: bool = False,
     plot_settings: PlotSettings | None = None,
@@ -695,14 +706,12 @@ def _plot_atomic_series(
 
     _style_axes(ax, title, y_label, style, x_label=_time_axis_label(settings), plot_settings=settings)
     _apply_step_range(ax, step_range, settings, x_origin)
-    legend_options = {"frameon": False, "fontsize": "small"}
-    if individual_legend:
-        legend_options.update(
-            {"bbox_to_anchor": (1.02, 1.0), "loc": "upper left", "fontsize": "x-small"}
-        )
-    legend = ax.legend(**legend_options)
-    for text in legend.get_texts():
-        text.set_color(style["text"])
+    _add_legend(
+        ax,
+        legend_location,
+        style,
+        fontsize="x-small" if individual_legend else "small",
+    )
     fig.tight_layout()
     return fig
 
@@ -718,7 +727,7 @@ def plot_msd(
     average_groups: list[list[int]] | None = None,
     average_group_labels: list[str] | None = None,
     fit_range: tuple[float, float] | None = None,
-    legend_location: str = "best",
+    legend_location: str = "none",
     theme: str = "dark",
     plot_settings: PlotSettings | None = None,
 ):
@@ -785,7 +794,7 @@ def plot_pairwise(
     reference_lines: ReferenceLines | None = None,
     molecule_atom: tuple[int, int] | None = None,
     molecule_notation: str = "formula",
-    legend_location: str = "best",
+    legend_location: str = "none",
     theme: str = "dark",
     plot_settings: PlotSettings | None = None,
 ):
@@ -896,13 +905,7 @@ def _plot_msd_averages(
     _apply_step_range(ax, step_range, settings, x_origin)
     _apply_y_range(ax, y_range)
     _add_reference_lines(ax, _display_reference_lines(reference_lines, settings, x_origin), color=style["text"])
-    legend = ax.legend(
-        loc=_validated_legend_location(legend_location),
-        frameon=False,
-        fontsize="small",
-    )
-    for text in legend.get_texts():
-        text.set_color(style["text"])
+    _add_legend(ax, legend_location, style, fontsize="small")
     fig.tight_layout()
     return fig
 
@@ -1112,15 +1115,14 @@ def _rebuild_combined_legend(axis, molecule_axis, legend_location: str, style: d
         primary_legend.remove()
     primary_handles, primary_labels = axis.get_legend_handles_labels()
     molecule_handles, molecule_labels = molecule_axis.get_legend_handles_labels()
-    legend = axis.legend(
-        [*primary_handles, *molecule_handles],
-        [*primary_labels, *molecule_labels],
-        loc=_validated_legend_location(legend_location),
-        frameon=False,
+    _add_legend(
+        axis,
+        legend_location,
+        style,
+        handles=[*primary_handles, *molecule_handles],
+        labels=[*primary_labels, *molecule_labels],
         fontsize="small",
     )
-    for text in legend.get_texts():
-        text.set_color(style["text"])
 
 
 def _plot_computed_series(
@@ -1214,13 +1216,7 @@ def _plot_computed_series(
     _apply_step_range(ax, step_range, settings, x_origin)
     _apply_y_range(ax, y_range)
     _add_reference_lines(ax, _display_reference_lines(reference_lines, settings, x_origin), color=style["text"])
-    legend = ax.legend(
-        loc=_validated_legend_location(legend_location),
-        frameon=False,
-        fontsize="small",
-    )
-    for text in legend.get_texts():
-        text.set_color(style["text"])
+    _add_legend(ax, legend_location, style, fontsize="small")
     fig.tight_layout()
     return fig
 
@@ -1281,6 +1277,7 @@ def plot_thermo(
     reference_lines: ReferenceLines | None = None,
     average_groups: list[list[int]] | None = None,
     average_group_labels: list[str] | None = None,
+    legend_location: str = "none",
     theme: str = "dark",
     gradient_colors: tuple[str, str] | None = None,
     plot_settings: PlotSettings | None = None,
@@ -1333,9 +1330,7 @@ def plot_thermo(
     _apply_step_range(ax, step_range, settings, x_origin)
     _apply_y_range(ax, y_range)
     _add_reference_lines(ax, _display_reference_lines(reference_lines, settings, x_origin), color=style["text"])
-    legend = ax.legend(frameon=False)
-    for text in legend.get_texts():
-        text.set_color(style["text"])
+    _add_legend(ax, legend_location, style)
     fig.tight_layout()
     figures.append(fig)
 
@@ -1369,9 +1364,7 @@ def plot_thermo(
     _apply_step_range(ax, step_range, settings, x_origin)
     _apply_y_range(ax, y_range)
     _add_reference_lines(ax, _display_reference_lines(reference_lines, settings, x_origin), color=style["text"])
-    legend = ax.legend(frameon=False)
-    for text in legend.get_texts():
-        text.set_color(style["text"])
+    _add_legend(ax, legend_location, style)
     fig.tight_layout()
     figures.append(fig)
     return figures
@@ -1507,6 +1500,47 @@ def _validated_running_average_points(points: int | None) -> int | None:
     if points < 1:
         raise ValueError("Running-average points must be at least 1.")
     return points
+
+
+def _add_legend(
+    axis,
+    location: str,
+    style: dict[str, str],
+    *,
+    handles=None,
+    labels=None,
+    fontsize: str = "small",
+):
+    """Add an optional inside or outside legend using shared styling."""
+
+    normalized = _validated_legend_location(location)
+    existing = axis.get_legend()
+    if existing is not None:
+        existing.remove()
+    if normalized == "none":
+        return None
+
+    if handles is None or labels is None:
+        handles, labels = axis.get_legend_handles_labels()
+    if not handles:
+        return None
+
+    options = {
+        "frameon": False,
+        "fontsize": fontsize,
+    }
+    if normalized in OUTSIDE_LEGEND_LOCATIONS:
+        legend_loc, anchor = OUTSIDE_LEGEND_LOCATIONS[normalized]
+        options.update({"loc": legend_loc, "bbox_to_anchor": anchor})
+        if normalized in {"outside above", "outside below"}:
+            options["ncol"] = min(5, len(handles))
+    else:
+        options["loc"] = normalized
+
+    legend = axis.legend(handles, labels, **options)
+    for text in legend.get_texts():
+        text.set_color(style["text"])
+    return legend
 
 
 def _validated_legend_location(location: str) -> str:
@@ -1764,7 +1798,11 @@ def _add_reference_lines(
         )
 
 
-def plot_thermo_per_simulation(simulations: list[LoadedSimulation], parameter: str):
+def plot_thermo_per_simulation(
+    simulations: list[LoadedSimulation],
+    parameter: str,
+    legend_location: str = "none",
+):
     """Create one figure per simulation and one averaged figure.
 
     Kept for callers that still want the old behavior.
@@ -1798,9 +1836,7 @@ def plot_thermo_per_simulation(simulations: list[LoadedSimulation], parameter: s
         label="Std. dev.",
     )
     _style_dark_axes(ax, f"Average {parameter}", y_label)
-    legend = ax.legend(frameon=False)
-    for text in legend.get_texts():
-        text.set_color(THERMO_DARK_COLORS["text"])
+    _add_legend(ax, legend_location, THERMO_DARK_COLORS)
     fig.tight_layout()
     figures.append(fig)
     return figures

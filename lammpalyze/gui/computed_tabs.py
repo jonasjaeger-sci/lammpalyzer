@@ -232,7 +232,7 @@ class ComputedDataTabMixin:
         vertical_lines = tk.StringVar()
         horizontal_lines = tk.StringVar()
         theme = tk.StringVar(value="Dark")
-        legend_location = tk.StringVar(value="Best")
+        legend_location = tk.StringVar(value="None")
         for suffix, value in (
             ("step_start", step_start),
             ("step_end", step_end),

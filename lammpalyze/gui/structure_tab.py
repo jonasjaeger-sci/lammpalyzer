@@ -126,7 +126,7 @@ class StructuralRelaxationTabMixin:
             state="readonly",
         ).pack(fill="x", pady=(0, 12))
 
-        self.structure_legend_location = tk.StringVar(value="Best")
+        self.structure_legend_location = tk.StringVar(value="None")
         ttk.Label(controls, text="Legend placement").pack(anchor="w")
         ttk.Combobox(
             controls,

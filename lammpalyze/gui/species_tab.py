@@ -5,7 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from lammpalyze.gui.helpers import parse_reference_lines, parse_timestep_values
+from lammpalyze.gui.helpers import LEGEND_PLACEMENTS, parse_reference_lines, parse_timestep_values
 from lammpalyze.plotting import (
     plot_species,
     simulation_has_species_source,
@@ -112,6 +112,15 @@ class SpeciesTabMixin:
             state="readonly",
         ).pack(fill="x", pady=(0, 12))
 
+        self.species_legend_location = tk.StringVar(value="None")
+        ttk.Label(controls, text="Legend placement").pack(anchor="w")
+        ttk.Combobox(
+            controls,
+            textvariable=self.species_legend_location,
+            values=LEGEND_PLACEMENTS,
+            state="readonly",
+        ).pack(fill="x", pady=(0, 12))
+
         ttk.Label(controls, text="Species").pack(anchor="w")
         species_list_frame = ttk.Frame(controls)
         species_list_frame.pack(fill="both", expand=True, pady=(0, 12))
@@ -175,6 +184,7 @@ class SpeciesTabMixin:
                 reference_lines=self._species_reference_lines(),
                 step_range=self._species_step_range(),
                 excluded_timesteps=self._species_excluded_timesteps(),
+                legend_location=self.species_legend_location.get(),
                 theme=self.species_theme.get(),
                 data_source=self._selected_species_source(),
                 plot_settings=self._plot_settings(),

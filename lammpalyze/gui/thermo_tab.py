@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from lammpalyze.gui.helpers import (
+    LEGEND_PLACEMENTS,
     ordered_thermo_parameters,
     parse_reference_lines,
     parse_simulation_groups,
@@ -175,6 +176,15 @@ class ThermoTabMixin:
             state="readonly",
         ).pack(fill="x", pady=(0, 12))
 
+        self.thermo_legend_location = tk.StringVar(value="None")
+        ttk.Label(controls, text="Legend placement").pack(anchor="w")
+        ttk.Combobox(
+            controls,
+            textvariable=self.thermo_legend_location,
+            values=LEGEND_PLACEMENTS,
+            state="readonly",
+        ).pack(fill="x", pady=(0, 12))
+
         self.thermo_gradient_enabled = tk.BooleanVar(value=False)
         self.thermo_gradient_start = tk.StringVar(value="#f9c74f")
         self.thermo_gradient_end = tk.StringVar(value="#7209b7")
@@ -274,6 +284,7 @@ class ThermoTabMixin:
                 reference_lines=self._thermo_reference_lines(),
                 average_groups=self._thermo_average_groups(simulations),
                 average_group_labels=self._thermo_average_group_labels(),
+                legend_location=self.thermo_legend_location.get(),
                 theme=self.thermo_theme.get(),
                 gradient_colors=self._thermo_gradient_colors(),
                 plot_settings=self._plot_settings(),
